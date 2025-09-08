@@ -7,7 +7,10 @@ from typing import Optional, Tuple
 
 
 class UrlType(Enum):
-    """High-level categories used to route URLs to handlers and decide output behavior."""
+    """
+    High-level categories used to route URLs to handlers and
+    decide output behavior.
+    """
     MODEL = auto()
     DATASET = auto()
     CODE = auto()
@@ -22,8 +25,10 @@ class ParsedUrl:
     Attributes:
         raw: The original URL string.
         type: One of UrlType.
-        hf_id: Hugging Face repo or dataset ID (e.g., 'org/name'), if applicable.
-        gh_owner_repo: ('owner','repo') for GitHub URLs, if applicable.
+        hf_id: Hugging Face repo or dataset ID (e.g., 'org/name'),
+               if applicable.
+        gh_owner_repo: ('owner','repo') for GitHub URLs,
+                       if applicable.
     """
     raw: str
     type: UrlType
@@ -37,7 +42,7 @@ class UrlRouter:
 
     Responsibilities:
         - Decide UrlType (MODEL, DATASET, CODE, UNKNOWN).
-        - Extract identifiers 
+        - Extract identifiers.
     """
 
     # Hugging Face patterns:
@@ -46,23 +51,24 @@ class UrlRouter:
     # GitHub pattern:
     #   https://github.com/{owner}/{repo}[/...]
     _HF_DATASET_RE = re.compile(
-        r"^https?://huggingface\.co/datasets/(?P<org>[^/\s\?#]+)/(?P<name>[^/\s\?#]+)",
+        r"^https?://huggingface\.co/datasets/"
+        r"(?P<org>[^/\s\?#]+)/(?P<name>[^/\s\?#]+)",
         re.IGNORECASE,
     )
     _HF_MODEL_RE = re.compile(
-        r"^https?://huggingface\.co/(?P<org>[^/\s\?#]+)/(?P<name>[^/\s\?#]+)",
+        r"^https?://huggingface\.co/"
+        r"(?P<org>[^/\s\?#]+)/(?P<name>[^/\s\?#]+)",
         re.IGNORECASE,
     )
     _GH_RE = re.compile(
-        r"^https?://github\.com/(?P<owner>[^/\s\?#]+)/(?P<repo>[^/\s\?#]+)(?:[/?].*)?$",
+        r"^https?://github\.com/"
+        r"(?P<owner>[^/\s\?#]+)/(?P<repo>[^/\s\?#]+)"
+        r"(?:[/?].*)?$",
         re.IGNORECASE,
     )
 
-
     def classify(self, url: str) -> UrlType:
-        """
-        Returns a UrlType based on hostname/path patterns.
-        """
+        """Return a UrlType based on hostname/path patterns."""
         if self._HF_DATASET_RE.match(url):
             return UrlType.DATASET
         if self._HF_MODEL_RE.match(url) and "/datasets/" not in url.lower():
@@ -72,31 +78,39 @@ class UrlRouter:
         return UrlType.UNKNOWN
 
     def parse(self, url: str) -> ParsedUrl:
-        """
-        Parses a URL into a ParsedUrl with type and normalized identifiers.
-
-        """
+        """Parse a URL into a ParsedUrl with type and identifiers."""
         # Dataset
         m_ds = self._HF_DATASET_RE.match(url)
         if m_ds:
             org = m_ds.group("org")
             name = m_ds.group("name")
-            return ParsedUrl(raw=url, type=UrlType.DATASET, hf_id=f"{org}/{name}")
+            return ParsedUrl(
+                raw=url,
+                type=UrlType.DATASET,
+                hf_id=f"{org}/{name}",
+            )
 
-        # HF model 
+        # Hugging Face model
         m_model = self._HF_MODEL_RE.match(url)
         if m_model and "/datasets/" not in url.lower():
             org = m_model.group("org")
             name = m_model.group("name")
-            return ParsedUrl(raw=url, type=UrlType.MODEL, hf_id=f"{org}/{name}")
+            return ParsedUrl(
+                raw=url,
+                type=UrlType.MODEL,
+                hf_id=f"{org}/{name}",
+            )
 
         # GitHub
         m_gh = self._GH_RE.match(url)
         if m_gh:
             owner = m_gh.group("owner")
             repo = m_gh.group("repo")
-            return ParsedUrl(raw=url, type=UrlType.CODE, gh_owner_repo=(owner, repo))
+            return ParsedUrl(
+                raw=url,
+                type=UrlType.CODE,
+                gh_owner_repo=(owner, repo),
+            )
 
         # Fallback
         return ParsedUrl(raw=url, type=UrlType.UNKNOWN)
-
