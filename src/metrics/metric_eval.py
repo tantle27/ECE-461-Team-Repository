@@ -31,3 +31,25 @@ class MetricEval:
             )
 
         return results
+    
+    def aggregateScores(self, scores: Dict[str, float]) -> float:
+        """
+        Aggregate individual metric scores into a final score using weights.
+        
+        Args:
+            scores (Dict[str, float]): Dictionary of metric name to score.
+        
+        Returns:
+            float: Final aggregated score between 0.0 and 1.0.
+        """
+        total_weight = sum(self.weights.get(name, 0) for name in scores.keys())
+        if total_weight == 0:
+            return 0.0
+        
+        weighted_sum = sum(
+            scores[name] * self.weights.get(name, 0)
+            for name in scores.keys() if name in self.weights
+        )
+        
+        final_score = weighted_sum / total_weight
+        return max(0.0, min(1.0, final_score))
