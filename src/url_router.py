@@ -6,8 +6,8 @@ from typing import Optional, Tuple
 
 class UrlType(Enum):
     """
-    High-level categories used to route URLs to handlers and
-    decide output behavior.
+    High-level categories used to route URLs to handlers and decide output
+    behavior.
     """
     MODEL = auto()
     DATASET = auto()
@@ -23,10 +23,9 @@ class ParsedUrl:
     Attributes:
         raw: The original URL string.
         type: One of UrlType.
-        hf_id: Hugging Face repo or dataset ID (e.g., 'org/name'),
-               if applicable.
-        gh_owner_repo: ('owner','repo') for GitHub URLs,
-                       if applicable.
+        hf_id: Hugging Face repo or dataset ID (e.g., 'org/name'), if
+            applicable.
+        gh_owner_repo: ('owner', 'repo') for GitHub URLs, if applicable.
     """
     raw: str
     type: UrlType
@@ -81,13 +80,21 @@ class UrlRouter:
         if m:
             org = m.group("org").lower()
             name = m.group("name").lower()
-            return ParsedUrl(raw=url, type=UrlType.DATASET, hf_id=f"{org}/{name}")
+            return ParsedUrl(
+                raw=url,
+                type=UrlType.DATASET,
+                hf_id=f"{org}/{name}",
+            )
 
         m = self._HF_MODEL_RE.match(clean)
         if m and "/datasets/" not in low and "/spaces/" not in low:
             org = m.group("org").lower()
             name = m.group("name").lower()
-            return ParsedUrl(raw=url, type=UrlType.MODEL, hf_id=f"{org}/{name}")
+            return ParsedUrl(
+                raw=url,
+                type=UrlType.MODEL,
+                hf_id=f"{org}/{name}",
+            )
 
         m = self._GH_RE.match(clean)
         if m:
@@ -112,7 +119,8 @@ class UrlRouter:
         return parsed.hf_id if parsed.type is UrlType.DATASET else None
 
     def parse_github_owner_repo(
-        self, url: str
+        self,
+        url: str,
     ) -> Optional[Tuple[str, str]]:
         """Return (owner, repo) if URL is a GitHub repo; else None."""
         parsed = self.parse(url)
