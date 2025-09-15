@@ -76,8 +76,9 @@ class RepoContext:
     @classmethod
     def _canon_dataset_key(cls, ctx: "RepoContext") -> str:
         """
-        Canonical key for a dataset context:
-        prefer normalized hf_id ('org/name'); else parse from URL; else URL.
+        Canonical key for a dataset context.
+
+        Prefer normalized hf_id ('org/name'); else parse from URL; else URL.
         """
         if ctx.hf_id:
             return ctx.hf_id.lower().removeprefix("datasets/")
@@ -91,8 +92,9 @@ class RepoContext:
     @classmethod
     def _canon_code_key(cls, ctx: "RepoContext") -> str:
         """
-        Canonical key for a code repo:
-        normalize GitHub URLs to 'https://github.com/owner/repo'.
+        Canonical key for a code repo.
+
+        Normalize GitHub URLs to 'https://github.com/owner/repo'.
         """
         if ctx.gh_url:
             parsed = UrlRouter().parse(ctx.gh_url)
@@ -123,25 +125,37 @@ class RepoContext:
         return self.total_weight_bytes() / (1024**3)
 
     def add_files(self, paths: Iterable[Path]) -> None:
-        """Register files without stat-ing; sizes remain 0 unless set by handlers."""
+        """
+        Register files without stat-ing.
+
+        Sizes remain 0 unless set by handlers.
+        """
         seen = {fi.path for fi in self.files}
         for p in paths:
             if p in seen:
                 continue
-            ext = p.suffix[1:].lower() if p.suffix.startswith(".") else p.suffix.lower()
-            self.files.append(FileInfo(path=p, size_bytes=0, ext=ext))
+            ext = (
+                p.suffix[1:].lower()
+                if p.suffix.startswith(".")
+                else p.suffix.lower()
+            )
+            self.files.append(
+                FileInfo(path=p, size_bytes=0, ext=ext)
+            )
 
     def link_dataset(self, ds_ctx: "RepoContext") -> None:
-        """ associate a dataset context to this context (usually a model)."""
+        """Associate a dataset context to this context (usually a model)."""
         key = self._canon_dataset_key(ds_ctx)
         if not key:
             return
-        if any(self._canon_dataset_key(c) == key for c in self.linked_datasets):
+        if any(
+            self._canon_dataset_key(c) == key for c in self.linked_datasets
+        ):
             return
         self.linked_datasets.append(ds_ctx)
 
     def link_code(self, code_ctx: "RepoContext") -> None:
-        """ associate a code repo context to this context (usually a model)."""
+        """Associate a code repo context to this context (usually a model)."""
         key = self._canon_code_key(code_ctx)
         if not key:
             return
