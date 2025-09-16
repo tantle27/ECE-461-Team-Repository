@@ -1,0 +1,22 @@
+#!/usr/bin/bash
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 {install|test|URL_FILE}"
+  echo "  install   Install required Python packages"
+  echo "  test      Run unit tests"
+  echo "  URL_FILE  Absolute path to a file with newline-delimited URLs"
+  exit 1
+fi
+
+if [ "$1" = "install" ]; then
+  echo "Installing requirements..."
+  pip install -r requirements.txt
+  exit 0
+elif [ "$1" = "test" ]; then
+  echo "Running tests..."
+  pytest tests/
+  exit 0
+else
+  python3 src/app.py $1
+  exit 0
+fi
