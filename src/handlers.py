@@ -60,6 +60,7 @@ def build_model_context(url: str) -> RepoContext:
         ctx.api_errors += 1
         ctx.fetch_logs.append(f"HF HTTP error: {e}")
         return ctx
+    return ctx
 
 
 def build_dataset_context(url: str) -> RepoContext:
