@@ -1,13 +1,21 @@
 import sys
+import api.hf_client as hf_client
+import url_router
 
 
 def main() -> int:
     arg = sys.argv[1]
     urls = read_urls(arg)
 
+    hfClient = hf_client.HFClient()
+    urlRouter = url_router.UrlRouter()
+
     # Pass to api calls
     for url in urls:
-        print(f"Processing URL: {url}")
+        modelId = urlRouter.parse(url).hf_id
+        print(f"Processing model id: {modelId}")
+        modelInfo = hfClient.get_model_info(modelId)
+
     return 0
 
 
