@@ -1,7 +1,7 @@
 from base_metric import BaseMetric
 
 
-class DatasetAvailabilityMetric(BaseMetric):
+class PerformanceClaimsMetric(BaseMetric):
     """
     Metric to evaluate the availability of datasets used in training or
     fine-tuning AI/ML models.

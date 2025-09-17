@@ -2,6 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict
 from .base_metric import BaseMetric
 
+from metrics import base_metric, bus_factor_metric, code_quality_metric, community_rating_metric, dataset_availability_metric, dataset_quality_metric, license_metric, performance_claims_metric, ramp_up_time_metric, size_metric
+
 
 class MetricEval:
     def __init__(self, metrics: List[BaseMetric], weights: Dict[str, float]):
@@ -53,3 +55,34 @@ class MetricEval:
 
         final_score = weighted_sum / total_weight
         return max(0.0, min(1.0, final_score))
+
+
+def init_metrics() -> List[BaseMetric]:
+    metric_classes = [
+        base_metric.BaseMetric,
+        bus_factor_metric.BusFactorMetric,
+        code_quality_metric.CodeQualityMetric,
+        community_rating_metric.CommunityRatingMetric,
+        dataset_availability_metric.DatasetAvailabilityMetric,
+        dataset_quality_metric.DatasetQualityMetric,
+        license_metric.LicenseMetric,
+        performance_claims_metric.PerformanceClaimsMetric,
+        ramp_up_time_metric.RampUpTimeMetric,
+        size_metric.SizeMetric,
+    ]
+    
+    return [cls() for cls in metric_classes]
+    
+
+def init_weights() -> Dict[str, float]:
+    return {
+        "Bus Factor": 0.15,
+        "Code Quality": 0.15,
+        "Community Rating": 0.15,
+        "Dataset Availability": 0.10,
+        "Dataset Quality": 0.10,
+        "License": 0.10,
+        "Performance Claims": 0.10,
+        "Ramp Up Time": 0.10,
+        "Size": 0.05,
+    }
