@@ -1,7 +1,11 @@
 import sys
 from api.hf_client import HFClient
 from url_router import UrlRouter, UrlType
-from handlers import build_model_context, build_dataset_context, build_code_context
+from handlers import (
+    build_model_context, 
+    build_dataset_context, 
+    build_code_context
+)
 from metric_eval import MetricEval
 
 
@@ -11,16 +15,15 @@ def main() -> int:
 
     hf_client = HFClient()
     url_router = UrlRouter()
-    metric
 
     # Pass to api calls
     for url in urls:
         parsed = url_router.parse(url)
-        
+
         if parsed.type == UrlType.MODEL:
             repo_ctx = build_model_context(url)
             print(repo_ctx)
-            
+
         else:
             print(f"{url} is not a model URL, skipping.")
 

@@ -2,7 +2,18 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict
 from .base_metric import BaseMetric
 
-from metrics import base_metric, bus_factor_metric, code_quality_metric, community_rating_metric, dataset_availability_metric, dataset_quality_metric, license_metric, performance_claims_metric, ramp_up_time_metric, size_metric
+from metrics import (
+    base_metric,
+    bus_factor_metric,
+    code_quality_metric,
+    community_rating_metric,
+    dataset_availability_metric,
+    dataset_quality_metric,
+    license_metric,
+    performance_claims_metric,
+    ramp_up_time_metric,
+    size_metric,
+)
 
 
 class MetricEval:
@@ -28,9 +39,7 @@ class MetricEval:
                 return (metric.name, -1)  # failing score
 
         with ThreadPoolExecutor() as executor:
-            results = dict(
-                executor.map(lambda m: safe_eval(m, repo_cxt), self.metrics)
-            )
+            results = dict(executor.map(lambda m: safe_eval(m, repo_cxt), self.metrics))
 
         return results
 
@@ -50,7 +59,8 @@ class MetricEval:
 
         weighted_sum = sum(
             scores[name] * self.weights.get(name, 0)
-            for name in scores.keys() if name in self.weights
+            for name in scores.keys()
+            if name in self.weights
         )
 
         final_score = weighted_sum / total_weight
@@ -70,9 +80,9 @@ def init_metrics() -> List[BaseMetric]:
         ramp_up_time_metric.RampUpTimeMetric,
         size_metric.SizeMetric,
     ]
-    
+
     return [cls() for cls in metric_classes]
-    
+
 
 def init_weights() -> Dict[str, float]:
     return {
