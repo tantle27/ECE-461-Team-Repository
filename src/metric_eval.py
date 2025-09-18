@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict
-from .base_metric import BaseMetric
+from .metrics.base_metric import BaseMetric
 
 
 class MetricEval:
@@ -27,7 +27,7 @@ class MetricEval:
 
         with ThreadPoolExecutor() as executor:
             results = dict(
-                executor.map(lambda m: safe_eval(m, repo_cxt), self.metrics)
+                executor.map(safe_eval, self.metrics)
             )
 
         return results

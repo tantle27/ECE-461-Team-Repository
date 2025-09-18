@@ -1,4 +1,5 @@
-from base_metric import BaseMetric
+from .base_metric import BaseMetric
+import math
 
 
 class CommunityRatingMetric(BaseMetric):
@@ -35,5 +36,37 @@ class CommunityRatingMetric(BaseMetric):
         Returns:
             float: Score between 0.0 and 1.0 based on community engagement
         """
+        if not repo_context:
+            return 0.0
 
-        pass  # Placeholder for actual implementation
+        likes = repo_context.get('hf_likes', 0)
+        downloads = repo_context.get('hf_downloads', 0)
+
+        # Handle negative values
+        if likes < 0 or downloads < 0:
+            raise ValueError("Likes and downloads must be non-negative")
+
+        # Logarithmic scaling for likes
+        likes_score = 0.0
+        if likes > 0:
+            likes_score = math.log10(likes + 1) / 5.0
+
+        # Logarithmic scaling for downloads
+        downloads_score = 0.0
+        if downloads > 0:
+            downloads_score = math.log10(downloads + 1) / 6.0
+
+        # Combined score (simple addition)
+        combined_score = likes_score + downloads_score
+
+        return max(0.0, min(1.0, combined_score))
+
+    def get_description(self) -> str:
+        """
+        Get a description of what this metric measures.
+
+        Returns:
+            str: Description of the metric
+        """
+        return ("Evaluates community engagement through likes/stars and "
+                "download counts using logarithmic scaling")

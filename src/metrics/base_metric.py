@@ -21,12 +21,12 @@ class BaseMetric(ABC):
         self.weight = weight
 
     @abstractmethod
-    def evaluate(self, model_info: dict) -> float:
+    def evaluate(self, repo_context: dict) -> float:
         """
         Evaluate the metric for a given model.
 
         Args:
-            model_info (dict): Dictionary containing model info including
+            repo_context (dict): Dictionary containing model info including
                              URL, repository data, documentation, etc.
 
         Returns:
