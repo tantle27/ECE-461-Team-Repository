@@ -12,215 +12,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 try:
     from metrics.base_metric import BaseMetric
+    from metrics.size_metric import SizeMetric
+    from metrics.license_metric import LicenseMetric
+    from metrics.ramp_up_time_metric import RampUpTimeMetric
+    from metrics.bus_factor_metric import BusFactorMetric
+    from metrics.dataset_availability_metric import DatasetAvailabilityMetric
+    from metrics.dataset_quality_metric import DatasetQualityMetric
+    from metrics.code_quality_metric import CodeQualityMetric
+    from metrics.performance_claims_metric import PerformanceClaimsMetric
 except ImportError:
+    # Fallback to mocks if imports fail
     BaseMetric = MagicMock
-
-
-# Mock metric classes for testing
-class SizeMetric(BaseMetric):
-    """Mock SizeMetric for testing."""
-
-    def __init__(self, weight=0.1):
-        super().__init__("Size", weight)
-
-    def evaluate(self, repo_context):
-        size_gb = repo_context.get('size', 0) / (1024**3)
-        if size_gb <= 2:
-            return 1.0
-        elif size_gb <= 16:
-            return max(0, 1 - (size_gb - 2) / 14)
-        else:
-            return 0.0
-
-    def get_description(self):
-        return "Evaluates model size impact on usability"
-
-
-class LicenseMetric(BaseMetric):
-    """Mock LicenseMetric for testing."""
-
-    COMPATIBLE_LICENSES = ['mit', 'apache-2.0', 'bsd-3-clause', 'unlicense']
-
-    def __init__(self, weight=0.1):
-        super().__init__("License", weight)
-
-    def evaluate(self, repo_context):
-        license_name = repo_context.get('license', '').lower()
-        return 1.0 if license_name in self.COMPATIBLE_LICENSES else 0.0
-
-    def get_description(self):
-        return "Checks license compatibility for commercial use"
-
-
-class RampUpTimeMetric(BaseMetric):
-    """Mock RampUpTimeMetric for testing."""
-
-    def __init__(self, weight=0.15):
-        super().__init__("RampUpTime", weight)
-
-    def evaluate(self, repo_context):
-        has_readme = repo_context.get('has_readme', False)
-        has_examples = repo_context.get('has_examples', False)
-        has_docs = repo_context.get('has_documentation', False)
-
-        score = 0.0
-        if has_readme:
-            score += 0.4
-        if has_examples:
-            score += 0.4
-        if has_docs:
-            score += 0.2
-
-        return min(1.0, score)
-
-    def get_description(self):
-        return "Evaluates ease of getting started with the model"
-
-
-class BusFactorMetric(BaseMetric):
-    """Mock BusFactorMetric for testing."""
-
-    def __init__(self, weight=0.15):
-        super().__init__("BusFactor", weight)
-
-    def evaluate(self, repo_context):
-        contributors = repo_context.get('contributors', [])
-        if not contributors:
-            return 0.0
-
-        total_contributions = sum(
-            c.get('contributions', 0) for c in contributors
-        )
-        if total_contributions == 0:
-            return 0.0
-
-        # Calculate contribution distribution
-        max_contribution = max(c.get('contributions', 0) for c in contributors)
-        concentration = max_contribution / total_contributions
-
-        # Higher concentration = lower bus factor = lower score
-        return max(0.0, 1.0 - concentration)
-
-    def get_description(self):
-        return ("Evaluates project sustainability based on "
-                "contributor diversity")
-
-
-class DatasetAvailabilityMetric(BaseMetric):
-    """Mock DatasetAvailabilityMetric for testing."""
-
-    def __init__(self, weight=0.1):
-        super().__init__("DatasetAvailability", weight)
-
-    def evaluate(self, repo_context):
-        has_dataset = repo_context.get('has_dataset', False)
-        dataset_accessible = repo_context.get('dataset_accessible', False)
-        dataset_size = repo_context.get('dataset_size', 0)
-
-        if not has_dataset:
-            return 0.0
-
-        score = 0.5  # Base score for having dataset
-
-        if dataset_accessible:
-            score += 0.3
-
-        if dataset_size > 1000:  # Substantial dataset
-            score += 0.2
-
-        return min(1.0, score)
-
-    def get_description(self):
-        return "Evaluates availability and accessibility of training datasets"
-
-
-class DatasetQualityMetric(BaseMetric):
-    """Mock DatasetQualityMetric for testing."""
-
-    def __init__(self, weight=0.15):
-        super().__init__("DatasetQuality", weight)
-
-    def evaluate(self, repo_context):
-        has_validation = repo_context.get('has_data_validation', False)
-        data_diversity = repo_context.get('data_diversity_score', 0.0)
-        data_completeness = repo_context.get('data_completeness', 0.0)
-
-        score = 0.0
-
-        if has_validation:
-            score += 0.4
-
-        score += data_diversity * 0.3
-        score += data_completeness * 0.3
-
-        return min(1.0, score)
-
-    def get_description(self):
-        return "Evaluates quality and diversity of training datasets"
-
-
-class CodeQualityMetric(BaseMetric):
-    """Mock CodeQualityMetric for testing."""
-
-    def __init__(self, weight=0.2):
-        super().__init__("CodeQuality", weight)
-
-    def evaluate(self, repo_context):
-        has_tests = repo_context.get('has_tests', False)
-        test_coverage = repo_context.get('test_coverage', 0.0)
-        has_linting = repo_context.get('has_linting', False)
-        code_complexity = repo_context.get('code_complexity', 10.0)
-
-        score = 0.0
-
-        if has_tests:
-            score += 0.3
-
-        score += (test_coverage / 100.0) * 0.3
-
-        if has_linting:
-            score += 0.2
-
-        # Lower complexity is better (invert and normalize)
-        complexity_score = max(0, 1 - (code_complexity / 20.0))
-        score += complexity_score * 0.2
-
-        return min(1.0, score)
-
-    def get_description(self):
-        return "Evaluates code quality through testing and static analysis"
-
-
-class PerformanceClaimsMetric(BaseMetric):
-    """Mock PerformanceClaimsMetric for testing."""
-
-    def __init__(self, weight=0.15):
-        super().__init__("PerformanceClaims", weight)
-
-    def evaluate(self, repo_context):
-        has_benchmarks = repo_context.get('has_benchmarks', False)
-        benchmark_results = repo_context.get('benchmark_results', [])
-        has_performance_docs = repo_context.get('has_performance_docs', False)
-        claims_verified = repo_context.get('claims_verified', False)
-
-        score = 0.0
-
-        if has_benchmarks:
-            score += 0.3
-
-        if benchmark_results:
-            score += min(0.3, len(benchmark_results) * 0.1)
-
-        if has_performance_docs:
-            score += 0.2
-
-        if claims_verified:
-            score += 0.2
-
-        return min(1.0, score)
-
-    def get_description(self):
-        return "Evaluates verification of performance claims and benchmarks"
+    SizeMetric = MagicMock
+    LicenseMetric = MagicMock
+    RampUpTimeMetric = MagicMock
+    BusFactorMetric = MagicMock
+    DatasetAvailabilityMetric = MagicMock
+    DatasetQualityMetric = MagicMock
+    CodeQualityMetric = MagicMock
+    PerformanceClaimsMetric = MagicMock
 
 
 # Test classes
