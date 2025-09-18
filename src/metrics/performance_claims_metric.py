@@ -1,30 +1,55 @@
-from base_metric import BaseMetric
+"""
+Performance Claims Metric for evaluating verification of performance claims.
+"""
+
+from .base_metric import BaseMetric
 
 
-class DatasetAvailabilityMetric(BaseMetric):
+class PerformanceClaimsMetric(BaseMetric):
     """
-    Metric to evaluate the availability of datasets used in training or
-    fine-tuning AI/ML models.
+    Metric to evaluate the verification of performance claims and benchmarks.
 
-    This metric checks if the datasets referenced in the model's documentation
-    or repository are publicly accessible and properly cited.
+    This metric checks if the model's performance claims are backed by
+    verifiable benchmarks and proper documentation.
     """
 
-    def __init__(self, weight: float = 0.0):
-        super().__init__(name="Dataset Availability", weight=weight)
+    def __init__(self, weight: float = 0.15):
+        super().__init__(name="PerformanceClaims", weight=weight)
 
-    def evaluate(self, model_info: dict) -> float:
+    def evaluate(self, repo_context: dict) -> float:
         """
-        Evaluate the dataset availability for a given model repository.
+        Evaluate the performance claims verification for a given repository.
 
         Args:
-            model_info (dict): Dictionary containing model info including
-                               URL, repository data, documentation, etc.
+            repo_context (dict): Dictionary containing repository information
+                               including benchmark and performance data.
 
         Returns:
-            float: Score between 0.0 and 1.0, where 1.0 indicates all datasets
-            are publicly available and properly cited, and 0.0 indicates none
-            are available.
+            float: Score between 0.0 and 1.0, where 1.0 indicates fully
+                  verified performance claims and 0.0 indicates no
+                  verification.
         """
+        has_benchmarks = repo_context.get('has_benchmarks', False)
+        benchmark_results = repo_context.get('benchmark_results', [])
+        has_performance_docs = repo_context.get('has_performance_docs', False)
+        claims_verified = repo_context.get('claims_verified', False)
 
-        pass  # Placeholder for actual implementation
+        score = 0.0
+
+        if has_benchmarks:
+            score += 0.3
+
+        if benchmark_results:
+            score += min(0.3, len(benchmark_results) * 0.1)
+
+        if has_performance_docs:
+            score += 0.2
+
+        if claims_verified:
+            score += 0.2
+
+        return min(1.0, score)
+
+    def get_description(self) -> str:
+        """Get description of the metric."""
+        return "Evaluates verification of performance claims and benchmarks"

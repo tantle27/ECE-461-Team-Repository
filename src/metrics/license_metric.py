@@ -1,30 +1,38 @@
-from base_metric import BaseMetric
+"""
+License Metric for evaluating license compatibility.
+"""
+
+from .base_metric import BaseMetric
 
 
-class DatasetAvailabilityMetric(BaseMetric):
+class LicenseMetric(BaseMetric):
     """
-    Metric to evaluate the availability of datasets used in training or
-    fine-tuning AI/ML models.
+    Metric to evaluate the license compatibility for commercial use.
 
-    This metric checks if the datasets referenced in the model's documentation
-    or repository are publicly accessible and properly cited.
+    This metric checks if the model's license is compatible with
+    commercial applications and deployment.
     """
 
-    def __init__(self, weight: float = 0.0):
-        super().__init__(name="Dataset Availability", weight=weight)
+    COMPATIBLE_LICENSES = ['mit', 'apache-2.0', 'bsd-3-clause', 'unlicense']
 
-    def evaluate(self, model_info: dict) -> float:
+    def __init__(self, weight: float = 0.1):
+        super().__init__(name="License", weight=weight)
+
+    def evaluate(self, repo_context: dict) -> float:
         """
-        Evaluate the dataset availability for a given model repository.
+        Evaluate the license compatibility for a given model repository.
 
         Args:
-            model_info (dict): Dictionary containing model info including
-                               URL, repository data, documentation, etc.
+            repo_context (dict): Dictionary containing repository information
+                               including license data.
 
         Returns:
-            float: Score between 0.0 and 1.0, where 1.0 indicates all datasets
-            are publicly available and properly cited, and 0.0 indicates none
-            are available.
+            float: Score between 0.0 and 1.0, where 1.0 indicates a fully
+                  compatible license and 0.0 indicates incompatible license.
         """
+        license_name = repo_context.get('license', '').lower()
+        return 1.0 if license_name in self.COMPATIBLE_LICENSES else 0.0
 
-        pass  # Placeholder for actual implementation
+    def get_description(self) -> str:
+        """Get description of the metric."""
+        return "Checks license compatibility for commercial use"
