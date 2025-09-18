@@ -1,6 +1,6 @@
-# Unit Tests for ACME AI/ML Model Evaluation System
+# Unit Tests for ECE-461 Team Repository
 
-This directory contains comprehensive unit tests for the ACME Corporation AI/ML Model Evaluation System.
+This directory contains comprehensive unit tests for the ECE-461 Team Repository AI/ML Model Evaluation System.
 
 ## 📋 Test Structure
 
@@ -8,9 +8,18 @@ This directory contains comprehensive unit tests for the ACME Corporation AI/ML 
 tests/
 ├── __init__.py                      # Test package initialization
 ├── test_base_metric.py             # Tests for BaseMetric abstract class
+├── test_url_handlers.py            # Tests for URL handler classes
+├── test_repo_context.py            # Tests for RepoContext dataclass
 ├── test_metric_eval.py             # Tests for MetricEval orchestrator
+├── test_net_scorer.py              # Tests for NetScorer (weighted scoring)
+├── test_error_handling.py          # Comprehensive error handling tests
 ├── test_community_rating_metric.py # Tests for CommunityRatingMetric
-└── test_integration.py             # Integration tests for complete system
+├── test_extended_metrics.py        # Tests for all extended metrics
+├── test_integration.py             # Integration tests for complete system
+├── test_cli_layer.py               # CLI layer tests
+├── test_routing_layer.py           # URL routing tests
+├── test_run_install.py             # Installation script tests
+└── test_run_test.py                # Test runner tests
 ```
 
 ## 🚀 Running Tests
@@ -26,23 +35,29 @@ pip install pytest pytest-cov pytest-mock
 # From project root directory
 python -m pytest tests/ -v
 
-# Or using the test runner script
-python run_tests.py
+# Run with coverage report
+python -m pytest tests/ --cov=src --cov-report=html --cov-report=term-missing
+
+# Run only working tests (exclude known failing ones)
+python -m pytest tests/test_url_handlers.py tests/test_repo_context.py tests/test_metric_eval.py tests/test_net_scorer.py tests/test_error_handling.py tests/test_integration.py tests/test_extended_metrics.py tests/test_base_metric.py tests/test_community_rating_metric.py -v
 ```
 
 ### Run Specific Test Files
 ```bash
-# Run BaseMetric tests
-python -m pytest tests/test_base_metric.py -v
+# Core functionality tests
+python -m pytest tests/test_url_handlers.py -v       # URL handler classes
+python -m pytest tests/test_repo_context.py -v       # Repository context
+python -m pytest tests/test_metric_eval.py -v        # Metric evaluation
+python -m pytest tests/test_net_scorer.py -v         # Weighted scoring
+python -m pytest tests/test_error_handling.py -v     # Error handling
 
-# Run MetricEval tests  
-python -m pytest tests/test_metric_eval.py -v
+# Metric tests
+python -m pytest tests/test_base_metric.py -v        # BaseMetric abstract class
+python -m pytest tests/test_community_rating_metric.py -v  # Community metrics
+python -m pytest tests/test_extended_metrics.py -v   # All extended metrics
 
-# Run Community Rating Metric tests
-python -m pytest tests/test_community_rating_metric.py -v
-
-# Run Integration tests
-python -m pytest tests/test_integration.py -v
+# Integration tests
+python -m pytest tests/test_integration.py -v        # Full system integration
 ```
 
 ### Run Tests with Coverage

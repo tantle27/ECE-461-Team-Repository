@@ -24,7 +24,7 @@ def run_test_category(category_name, test_files):
     """Run a category of tests and return the result."""
     print(f"\n📋 {category_name}")
     print("-" * 40)
-    
+
     all_passed = True
     for test_file in test_files:
         if os.path.exists(test_file):
@@ -35,7 +35,7 @@ def run_test_category(category_name, test_files):
             result = subprocess.run(
                 cmd, capture_output=True, text=True, check=False
             )
-            
+
             if result.returncode == 0:
                 print(f"✅ {os.path.basename(test_file)} - PASSED")
             else:
@@ -45,7 +45,7 @@ def run_test_category(category_name, test_files):
                 all_passed = False
         else:
             print(f"⚠️  {test_file} - NOT FOUND (skipping)")
-    
+
     return all_passed
 
 
@@ -53,10 +53,10 @@ def main():
     """Execute comprehensive validation plan tests."""
     print_header("ACME AI/ML Model Evaluation System - Comprehensive Testing")
     print("Following the structured validation plan format")
-    
+
     start_time = time.time()
     all_categories_passed = True
-    
+
     # Test categories following the validation plan format
     test_categories = [
         ("CLI Layer Tests", [
@@ -87,20 +87,20 @@ def main():
             "tests/test_integration.py"
         ])
     ]
-    
+
     # Execute each test category
     for category_name, test_files in test_categories:
         category_passed = run_test_category(category_name, test_files)
         if not category_passed:
             all_categories_passed = False
-    
+
     # Summary
     end_time = time.time()
     execution_time = end_time - start_time
-    
+
     print_header("Test Execution Summary")
     print(f"Total execution time: {execution_time:.2f} seconds")
-    
+
     if all_categories_passed:
         print("✅ All test categories completed successfully!")
         print("🎉 System validation PASSED - Ready for production!")

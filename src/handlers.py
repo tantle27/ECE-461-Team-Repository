@@ -60,7 +60,8 @@ class ModelUrlHandler(UrlHandler):
                 ctx.gated = info.gated
                 ctx.private = info.private
 
-                files = self.hf_client.list_files(parsed.hf_id, repo_type="model")
+                files = self.hf_client.list_files(
+                    parsed.hf_id, repo_type="model")
                 ctx.files = [
                     FileInfo(
                         path=Path(fi.path),
@@ -69,8 +70,10 @@ class ModelUrlHandler(UrlHandler):
                     )
                     for fi in files
                 ]
-                ctx.readme_text = self.hf_client.get_readme(parsed.hf_id)
-                ctx.model_index = self.hf_client.get_model_index_json(parsed.hf_id)
+                readme = self.hf_client.get_readme(parsed.hf_id)
+                ctx.readme_text = readme
+                model_idx = self.hf_client.get_model_index_json(parsed.hf_id)
+                ctx.model_index = model_idx
                 break
 
             except GatedRepoError as e:
@@ -87,7 +90,8 @@ class ModelUrlHandler(UrlHandler):
             except HfHubHTTPError as e:
                 if "429" in str(e) and attempt < max_retries - 1:
                     # Rate limited - retry with backoff
-                    ctx.fetch_logs.append(f"Rate limited, retrying in {retry_delay}s...")
+                    msg = f"Rate limited, retrying in {retry_delay}s..."
+                    ctx.fetch_logs.append(msg)
                     time.sleep(retry_delay)
                     retry_delay *= 2
                     continue
@@ -152,7 +156,8 @@ class DatasetUrlHandler(UrlHandler):
             except HfHubHTTPError as e:
                 if "429" in str(e) and attempt < max_retries - 1:
                     # Rate limited - retry with backoff
-                    ctx.fetch_logs.append(f"Rate limited, retrying in {retry_delay}s...")
+                    msg = f"Rate limited, retrying in {retry_delay}s..."
+                    ctx.fetch_logs.append(msg)
                     time.sleep(retry_delay)
                     retry_delay *= 2
                     continue
@@ -190,7 +195,8 @@ class CodeUrlHandler(UrlHandler):
 
         for attempt in range(max_retries):
             try:
-                response = requests.get(f"https://api.github.com/repos/{owner}/{repo}")
+                url = f"https://api.github.com/repos/{owner}/{repo}"
+                response = requests.get(url)
 
                 if response.status_code == 404:
                     raise Exception(f"Repository not found: {owner}/{repo}")
@@ -223,7 +229,8 @@ class CodeUrlHandler(UrlHandler):
                         last_modified=data.get("updated_at"),
                     )
                 else:
-                    raise Exception(f"GitHub API error: {response.status_code}")
+                    error_msg = f"GitHub API error: {response.status_code}"
+                    raise Exception(error_msg)
 
             except requests.RequestException as e:
                 if attempt < max_retries - 1:

@@ -14,7 +14,7 @@ def main() -> int:
     for url in urls:
         modelId = urlRouter.parse(url).hf_id
         print(f"Processing model id: {modelId}")
-        modelInfo = hfClient.get_model_info(modelId)
+        hfClient.get_model_info(modelId)
 
     return 0
 

@@ -12,11 +12,11 @@ from typing import Dict, Optional
 class NetScorer:
     """
     Class for handling metric evaluation results.
-    
+
     Computes weighted averages of metric scores and formats output
     in NDJSON format for standardized reporting.
     """
-    
+
     def __init__(self, scores: Dict[str, float], weights: Dict[str, float],
                  url: Optional[str] = None,
                  latencies: Optional[Dict[str, float]] = None):
@@ -36,11 +36,11 @@ class NetScorer:
         self.weights = weights or {}
         self.url = url or ""
         self.latencies = latencies or {}
-    
+
     def compute_net_score(self) -> float:
         """
         Compute weighted average of all metric scores.
-        
+
         Returns:
             float: Weighted average score between 0.0 and 1.0
         """
@@ -59,9 +59,9 @@ class NetScorer:
             for name in self.scores.keys()
             if name in self.weights
         )
-        
+
         return weighted_sum / total_weight
-    
+
     def to_ndjson(self) -> Dict:
         """
         Convert results to NDJSON format.
@@ -71,36 +71,36 @@ class NetScorer:
                 format
         """
         net_score = self.compute_net_score()
-        
+
         result = {
             "URL": self.url,
             "NetScore": round(net_score, 2),
             "NetScore_Latency": self.latencies.get("NetScore", 0.0)
         }
-        
+
         # Add individual metric scores and latencies
         for metric_name, score in self.scores.items():
             result[metric_name] = round(score, 2)
             latency_key = f"{metric_name}_Latency"
             result[latency_key] = self.latencies.get(metric_name, 0.0)
-        
+
         return result
-    
+
     def to_ndjson_string(self) -> str:
         """
         Convert results to NDJSON string format.
-        
+
         Returns:
             str: JSON string representation of the results
         """
         return json.dumps(self.to_ndjson())
-    
+
     def __str__(self) -> str:
         """String representation of NetScorer."""
         net_score = self.compute_net_score()
         return (f"NetScorer(net_score={net_score:.2f}, "
                 f"metrics={len(self.scores)})")
-    
+
     def __repr__(self) -> str:
         """Detailed string representation of NetScorer."""
         return (f"NetScorer(scores={self.scores}, weights={self.weights}, "
