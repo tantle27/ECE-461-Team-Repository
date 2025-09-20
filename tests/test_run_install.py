@@ -23,7 +23,7 @@ class TestInstallFunctionality:
         """Test that we can check Python version."""
         import sys
         version = sys.version_info
-        
+
         # Should be Python 3.7+ for this project
         assert version.major == 3
         assert version.minor >= 7
@@ -33,8 +33,6 @@ class TestInstallFunctionality:
         # Test that we can import required modules
         try:
             import pytest
-            import os
-            import sys
             assert True
         except ImportError:
             pytest.fail("Required modules not available")
@@ -43,12 +41,12 @@ class TestInstallFunctionality:
         """Test basic file system permissions."""
         import tempfile
         import os
-        
+
         # Test we can create and write files
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             f.write("test")
             temp_path = f.name
-        
+
         try:
             assert os.path.exists(temp_path)
             with open(temp_path, 'r') as f:

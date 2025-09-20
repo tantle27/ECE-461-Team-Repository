@@ -2,6 +2,7 @@
 Unit tests for RunTest class with pytest integration and coverage reporting.
 """
 
+from src.run_test import RunTest, TestExecutionResult
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
 import sys
@@ -11,8 +12,6 @@ import subprocess
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-from src.run_test import RunTest, TestExecutionResult
 
 
 class TestRunTestClass:
@@ -79,7 +78,7 @@ class TestRunTestClass:
 
         with patch.object(self.runner, '_parse_coverage_report') as mock_cov:
             mock_cov.return_value = {'totals': {'percent_covered': 75.0}}
-            
+
             with patch.object(self.runner, '_parse_test_output') as mock_out:
                 mock_out.return_value = {
                     'total': 169, 'passed': 164, 'failed': 5, 'duration': 0.65
@@ -94,7 +93,8 @@ class TestRunTestClass:
     @patch('subprocess.run')
     def test_run_tests_timeout(self, mock_subprocess):
         """Test test execution timeout handling."""
-        mock_subprocess.side_effect = subprocess.TimeoutExpired(['pytest'], 300)
+        mock_subprocess.side_effect = subprocess.TimeoutExpired([
+                                                                'pytest'], 300)
 
         result = self.runner.run_tests_with_coverage()
 
@@ -107,7 +107,8 @@ class TestRunTestClass:
         output = """
         ===== test session starts =====
         tests/test_cli_layer.py::TestAppCLI::test_read_urls_success PASSED
-        tests/test_cli_layer.py::TestAppCLI::test_read_urls_file_not_found PASSED
+        tests/test_cli_layer.py::TestAppCLI::test_read_urls_file_not_found \
+PASSED
         ===== 169 passed, 1 warning in 0.53s =====
         """
         stats = self.runner._parse_test_output(output)
@@ -152,7 +153,8 @@ class TestRunTestClass:
             }
         }
 
-        with patch('builtins.open', mock_open(read_data=json.dumps(coverage_data))):
+        mock_data = json.dumps(coverage_data)
+        with patch('builtins.open', mock_open(read_data=mock_data)):
             with patch('pathlib.Path.exists', return_value=True):
                 result = self.runner._parse_coverage_report()
 
@@ -187,7 +189,11 @@ class TestRunTestClass:
 
     def test_generate_ndjson_output_success(self):
         """Test NDJSON output generation for successful tests."""
-        test_stats = {'total': 169, 'passed': 169, 'failed': 0, 'duration': 0.53}
+        test_stats = {
+            'total': 169,
+            'passed': 169,
+            'failed': 0,
+            'duration': 0.53}
         coverage_data = {
             'totals': {
                 'percent_covered': 85.5,
@@ -197,7 +203,8 @@ class TestRunTestClass:
             'files': {'src/app.py': {}}
         }
 
-        ndjson_output = self.runner._generate_ndjson_output(test_stats, coverage_data, 0)
+        ndjson_output = self.runner._generate_ndjson_output(
+            test_stats, coverage_data, 0)
         result = json.loads(ndjson_output)
 
         assert result['test_execution']['status'] == 'success'
@@ -208,10 +215,15 @@ class TestRunTestClass:
 
     def test_generate_ndjson_output_failure(self):
         """Test NDJSON output generation for failed tests."""
-        test_stats = {'total': 169, 'passed': 164, 'failed': 5, 'duration': 0.65}
+        test_stats = {
+            'total': 169,
+            'passed': 164,
+            'failed': 5,
+            'duration': 0.65}
         coverage_data = {'totals': {'percent_covered': 75.0}}
 
-        ndjson_output = self.runner._generate_ndjson_output(test_stats, coverage_data, 1)
+        ndjson_output = self.runner._generate_ndjson_output(
+            test_stats, coverage_data, 1)
         result = json.loads(ndjson_output)
 
         assert result['test_execution']['status'] == 'failure'
@@ -254,7 +266,7 @@ class TestPytestIntegration:
     def test_pytest_available(self):
         """Test that pytest is available and working."""
         import pytest
-        
+
         assert pytest is not None
         assert hasattr(pytest, 'main')
 
@@ -289,7 +301,7 @@ class TestPytestIntegration:
         # Validate JSON serialization
         json_str = json.dumps(test_ndjson, separators=(',', ':'))
         parsed = json.loads(json_str)
-        
+
         assert parsed['test_execution']['status'] == 'success'
         assert parsed['coverage']['overall_percentage'] == 85.5
 
@@ -304,7 +316,7 @@ class TestRunTestCLI:
                                  mock_exit):
         """Test main CLI function with basic arguments."""
         from src.run_test import main
-        
+
         # Mock arguments
         mock_args = MagicMock()
         mock_args.pattern = None
@@ -312,7 +324,7 @@ class TestRunTestCLI:
         mock_args.html = False
         mock_args.markers = None
         mock_parse_args.return_value = mock_args
-        
+
         # Mock runner
         mock_runner = MagicMock()
         mock_result = MagicMock()
@@ -325,11 +337,11 @@ class TestRunTestCLI:
         mock_result.ndjson_output = '{"test": "data"}'
         mock_runner.run_tests_with_coverage.return_value = mock_result
         mock_run_test.return_value = mock_runner
-        
+
         # Test main function
         with patch('builtins.print'):  # Suppress output
             main()
-        
+
         mock_exit.assert_called_once_with(0)
         mock_runner.run_tests_with_coverage.assert_called_once_with(None, 80.0)
 
@@ -343,10 +355,10 @@ class TestRunTestCLI:
         """Test error NDJSON generation."""
         runner = RunTest()
         error_msg = "Test execution failed"
-        
+
         ndjson_output = runner._generate_error_ndjson(error_msg)
         result = json.loads(ndjson_output)
-        
+
         assert result['test_execution']['status'] == 'error'
         assert result['test_execution']['error_message'] == error_msg
         assert result['test_execution']['exit_code'] == 1
@@ -355,7 +367,7 @@ class TestRunTestCLI:
     def test_extract_file_coverage_with_absolute_paths(self):
         """Test file coverage extraction with absolute paths."""
         runner = RunTest()
-        
+
         # Create test data with absolute paths
         abs_path = str(runner.src_dir / "test_file.py")
         coverage_data = {
@@ -368,13 +380,13 @@ class TestRunTestCLI:
                 }
             }
         }
-        
+
         file_coverage = runner._extract_file_coverage(coverage_data)
-        
+
         # Should convert absolute path to relative
         assert 'test_file.py' in file_coverage
         assert file_coverage['test_file.py'] == 85.0
-        
+
         # Should keep non-src paths as is
         assert '/other/path/file.py' in file_coverage
         assert file_coverage['/other/path/file.py'] == 75.0
@@ -382,20 +394,20 @@ class TestRunTestCLI:
     def test_parse_test_output_edge_cases(self):
         """Test test output parsing with edge cases."""
         runner = RunTest()
-        
+
         # Test with no matching lines
         output = "No relevant output"
         stats = runner._parse_test_output(output)
-        
+
         assert stats['total'] == 0
         assert stats['passed'] == 0
         assert stats['failed'] == 0
         assert stats['duration'] == 0.0
-        
+
         # Test with empty output
         output = ""
         stats = runner._parse_test_output(output)
-        
+
         assert stats['total'] == 0
         assert stats['passed'] == 0
         assert stats['failed'] == 0

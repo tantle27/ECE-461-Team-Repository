@@ -10,7 +10,6 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-# Import actual functions from app.py
 from app import main, read_urls
 
 
@@ -23,11 +22,11 @@ class TestAppCLI:
             "https://huggingface.co/bert-base-uncased\n"
             "https://github.com/pytorch/pytorch\n"
         )
-        
+
         with patch('builtins.open',
                    mock_open(read_data=test_content)) as mock_file:
             urls = read_urls("test_urls.txt")
-            
+
             assert len(urls) == 2
             assert "https://huggingface.co/bert-base-uncased" in urls
             assert "https://github.com/pytorch/pytorch" in urls
@@ -39,7 +38,7 @@ class TestAppCLI:
         with patch('builtins.open', side_effect=FileNotFoundError):
             with pytest.raises(SystemExit) as exc_info:
                 read_urls("nonexistent.txt")
-            
+
             assert exc_info.value.code == 1
 
     def test_read_urls_general_exception(self):
@@ -48,7 +47,7 @@ class TestAppCLI:
         with patch('builtins.open', side_effect=error):
             with pytest.raises(SystemExit) as exc_info:
                 read_urls("protected.txt")
-            
+
             assert exc_info.value.code == 1
 
     def test_read_urls_empty_lines_filtered(self):
@@ -58,11 +57,11 @@ class TestAppCLI:
             "\n\n"
             "https://github.com/pytorch/pytorch\n\n"
         )
-        
+
         with patch('builtins.open',
                    mock_open(read_data=test_content)):
             urls = read_urls("test_urls.txt")
-            
+
             assert len(urls) == 2
             assert "" not in urls
 
@@ -75,20 +74,20 @@ class TestAppCLI:
         # Setup mocks
         test_url = "https://huggingface.co/bert-base-uncased"
         mock_read_urls.return_value = [test_url]
-        
+
         mock_parsed = MagicMock()
         mock_parsed.hf_id = "bert-base-uncased"
         mock_router_instance = MagicMock()
         mock_router_instance.parse.return_value = mock_parsed
         mock_url_router.return_value = mock_router_instance
-        
+
         mock_client_instance = MagicMock()
         mock_hf_client.return_value = mock_client_instance
-        
+
         # Test with mock sys.argv
         with patch('sys.argv', ['app.py', 'test_urls.txt']):
             result = main()
-        
+
         # Verify calls
         mock_read_urls.assert_called_once_with('test_urls.txt')
         mock_router_instance.parse.assert_called_once_with(test_url)
@@ -108,23 +107,23 @@ class TestAppCLI:
             "https://huggingface.co/gpt2"
         ]
         mock_read_urls.return_value = test_urls
-        
+
         mock_parsed1 = MagicMock()
         mock_parsed1.hf_id = "bert-base-uncased"
         mock_parsed2 = MagicMock()
         mock_parsed2.hf_id = "gpt2"
-        
+
         mock_router_instance = MagicMock()
         mock_router_instance.parse.side_effect = [mock_parsed1, mock_parsed2]
         mock_url_router.return_value = mock_router_instance
-        
+
         mock_client_instance = MagicMock()
         mock_hf_client.return_value = mock_client_instance
-        
+
         # Test with mock sys.argv
         with patch('sys.argv', ['app.py', 'test_urls.txt']):
             result = main()
-        
+
         # Verify calls
         assert mock_router_instance.parse.call_count == 2
         assert mock_client_instance.get_model_info.call_count == 2

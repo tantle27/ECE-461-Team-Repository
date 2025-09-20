@@ -24,7 +24,9 @@ from api.hf_client import (  # noqa: E402
     RepositoryNotFoundError,
     HfHubHTTPError
 )
-from api.gh_client import _retry, _TimeoutHTTPAdapter, _retry_policy  # noqa: E402
+from api.gh_client import (  # noqa: E402
+    _retry, _TimeoutHTTPAdapter, _retry_policy
+)
 
 
 class TestUrlHandler:
@@ -65,7 +67,7 @@ class TestModelUrlHandler:
     def test_fetch_metadata_success(self):
         """Mock HuggingFace API returns model metadata successfully."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf:
+                patch.object(self.handler, 'hf_client') as mock_hf:
 
             # Setup mocks
             mock_parsed = MagicMock()
@@ -105,8 +107,8 @@ class TestModelUrlHandler:
     def test_fetch_metadata_rate_limit(self):
         """Mock HuggingFace API rate limit -> retry logic."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf, \
-             patch('handlers.time.sleep') as mock_sleep:
+                patch.object(self.handler, 'hf_client') as mock_hf, \
+                patch('handlers.time.sleep') as mock_sleep:
 
             # Setup mocks
             mock_parsed = MagicMock()
@@ -146,7 +148,7 @@ class TestModelUrlHandler:
     def test_fetch_metadata_failure(self):
         """Mock HuggingFace API failure -> raises exception."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf:
+                patch.object(self.handler, 'hf_client') as mock_hf:
 
             # Setup mocks
             mock_parsed = MagicMock()
@@ -184,7 +186,7 @@ class TestModelUrlHandler:
     def test_fetch_metadata_gated_repo(self):
         """Test handling of gated repository access."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf:
+                patch.object(self.handler, 'hf_client') as mock_hf:
 
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.MODEL
@@ -211,7 +213,7 @@ class TestDatasetUrlHandler:
     def test_fetch_metadata_success(self):
         """Mock HuggingFace API returns dataset metadata successfully."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf:
+                patch.object(self.handler, 'hf_client') as mock_hf:
 
             # Setup mocks
             mock_parsed = MagicMock()
@@ -245,8 +247,8 @@ class TestDatasetUrlHandler:
     def test_fetch_metadata_rate_limit(self):
         """Mock dataset API rate limit handling."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf, \
-             patch('handlers.time.sleep') as mock_sleep:
+                patch.object(self.handler, 'hf_client') as mock_hf, \
+                patch('handlers.time.sleep') as mock_sleep:
 
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.DATASET
@@ -277,7 +279,7 @@ class TestDatasetUrlHandler:
     def test_fetch_metadata_failure(self):
         """Mock dataset API failure."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf:
+                patch.object(self.handler, 'hf_client') as mock_hf:
 
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.DATASET
@@ -313,7 +315,7 @@ class TestDatasetUrlHandler:
     def test_fetch_metadata_gated_dataset(self):
         """Test handling of gated dataset access."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch.object(self.handler, 'hf_client') as mock_hf:
+                patch.object(self.handler, 'hf_client') as mock_hf:
 
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.DATASET
@@ -442,8 +444,8 @@ class TestCodeUrlHandler:
     def test_fetch_github_metadata_max_retries_exhausted(self):
         """Test GitHub API with max retries exhausted on rate limit."""
         with patch('handlers.UrlRouter') as mock_router, \
-             patch('handlers.requests.get') as mock_requests, \
-             patch('handlers.time.sleep') as mock_sleep:
+                patch('handlers.requests.get') as mock_requests, \
+                patch('handlers.time.sleep') as mock_sleep:
 
             mock_parsed = MagicMock()
             mock_parsed.gh_owner_repo = ('owner', 'repo')
@@ -470,21 +472,21 @@ class TestRetryFunctionality:
         """Test _retry function when function succeeds on first attempt."""
         def success_fn():
             return "success"
-        
+
         result = _retry(success_fn)
         assert result == "success"
 
     def test_retry_success_after_failures(self):
         """Test _retry function when function succeeds after failures."""
         call_count = 0
-        
+
         def fail_then_succeed():
             nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise ValueError("Temporary failure")
             return "success"
-        
+
         with patch('time.sleep'):  # Mock sleep to speed up test
             result = _retry(fail_then_succeed, attempts=4)
             assert result == "success"
@@ -494,7 +496,7 @@ class TestRetryFunctionality:
         """Test _retry function when all attempts are exhausted."""
         def always_fail():
             raise ValueError("Always fails")
-        
+
         with patch('time.sleep'):  # Mock sleep to speed up test
             with pytest.raises(ValueError, match="Always fails"):
                 _retry(always_fail, attempts=3)
@@ -525,10 +527,10 @@ class TestGitHubClientErrorHandling:
     def test_github_client_initialization_error(self, mock_client):
         """Test GitHub client initialization with errors."""
         from api.gh_client import GHClient
-        
+
         # Test with invalid token
         mock_client.side_effect = Exception("Invalid token")
-        
+
         with pytest.raises(Exception, match="Invalid token"):
             GHClient()
 
@@ -536,11 +538,11 @@ class TestGitHubClientErrorHandling:
     def test_github_client_request_timeout(self, mock_get):
         """Test GitHub client request timeout handling."""
         from api.gh_client import GHClient
-        
+
         mock_get.side_effect = Exception("Request timeout")
-        
+
         client = GHClient()
-        
+
         with pytest.raises(Exception, match="Request timeout"):
             client.get_repo("owner", "repo")
 
@@ -551,35 +553,29 @@ class TestHuggingFaceClientErrorHandling:
     @patch('api.hf_client.HFClient')
     def test_hf_client_gated_repo_error(self, mock_client):
         """Test HuggingFace client gated repository error."""
-        from api.hf_client import HFClient
-        
-        client = HFClient()
         mock_client_instance = MagicMock()
-        mock_client_instance.get_model_info.side_effect = GatedRepoError("Gated repo")
-        
+        mock_client_instance.get_model_info.side_effect = GatedRepoError(
+            "Gated repo")
+
         with pytest.raises(GatedRepoError, match="Gated repo"):
             mock_client_instance.get_model_info("gated/model")
 
     @patch('api.hf_client.HFClient')
     def test_hf_client_repo_not_found_error(self, mock_client):
         """Test HuggingFace client repository not found error."""
-        from api.hf_client import HFClient
-        
-        client = HFClient()
         mock_client_instance = MagicMock()
-        mock_client_instance.get_model_info.side_effect = RepositoryNotFoundError("Not found")
-        
+        error = RepositoryNotFoundError("Not found")
+        mock_client_instance.get_model_info.side_effect = error
+
         with pytest.raises(RepositoryNotFoundError, match="Not found"):
             mock_client_instance.get_model_info("nonexistent/model")
 
     @patch('api.hf_client.HFClient')
     def test_hf_client_http_error(self, mock_client):
         """Test HuggingFace client HTTP error."""
-        from api.hf_client import HFClient
-        
-        client = HFClient()
         mock_client_instance = MagicMock()
-        mock_client_instance.get_model_info.side_effect = HfHubHTTPError("HTTP error")
-        
+        mock_client_instance.get_model_info.side_effect = HfHubHTTPError(
+            "HTTP error")
+
         with pytest.raises(HfHubHTTPError, match="HTTP error"):
             mock_client_instance.get_model_info("some/model")
