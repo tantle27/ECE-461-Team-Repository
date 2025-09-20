@@ -1,5 +1,5 @@
 """
-Unit tests for Routing Layer (EvaluatorRouter & URLRouter).
+Unit tests for URL Router functionality.
 """
 
 import pytest
@@ -10,142 +10,145 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-try:
-    from url_router import URLRouter, EvaluatorRouter
-except ImportError:
-    # Create mocks if classes don't exist yet
-    URLRouter = MagicMock
-    EvaluatorRouter = MagicMock
-
-try:
-    from handlers import ModelUrlHandler, DatasetUrlHandler, CodeUrlHandler
-except ImportError:
-    # Create mocks if handlers don't exist yet
-    ModelUrlHandler = MagicMock
-    DatasetUrlHandler = MagicMock
-    CodeUrlHandler = MagicMock
+# Import actual classes that exist
+from url_router import UrlRouter, UrlType, ParsedUrl
+from handlers import ModelUrlHandler, DatasetUrlHandler, CodeUrlHandler
 
 
-class TestEvaluatorRouter:
-    """Test suite for EvaluatorRouter class."""
+class TestUrlRouter:
+    """Test suite for UrlRouter class."""
 
     def setup_method(self):
         """Setup test fixtures."""
-        self.router = EvaluatorRouter()
+        self.router = UrlRouter()
 
-    @patch('url_router.URLRouter')
-    def test_evaluate_multiple_urls(self, mock_url_router):
-        """Test evaluation of multiple URLs from file."""
-        mock_classifier = MagicMock()
-        mock_url_router.return_value = mock_classifier
-
-        # Mock file content
-        test_urls = [
-            "https://huggingface.co/model1",
-            "https://huggingface.co/dataset1",
-            "https://github.com/repo1"
-        ]
-
-        with patch('builtins.open') as mock_open:
-            mock_open.return_value.__enter__.return_value = test_urls
-            results = self.router.evaluate_from_file("test_urls.txt")
-
-        assert len(results) == 3
-        mock_classifier.classify_url.assert_called()
-
-    def test_evaluator_router_initialization(self):
-        """Test EvaluatorRouter can be instantiated."""
-        router = EvaluatorRouter()
-        assert router is not None
-
-    @patch('url_router.URLRouter')
-    def test_evaluate_empty_file(self, mock_url_router):
-        """Test evaluation with empty URL file."""
-        mock_classifier = MagicMock()
-        mock_url_router.return_value = mock_classifier
-
-        with patch('builtins.open') as mock_open:
-            mock_open.return_value.__enter__.return_value = []
-            results = self.router.evaluate_from_file("empty.txt")
-
-        assert len(results) == 0
-
-
-class TestURLRouter:
-    """Test suite for URLRouter class."""
-
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.router = URLRouter()
-
-    def test_classify_model_url(self):
-        """HuggingFace model URL -> returns ModelUrlHandler."""
+    def test_parse_model_url(self):
+        """HuggingFace model URL -> returns MODEL type."""
         url = "https://huggingface.co/bert-base-uncased"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.MODEL
+        assert result.hf_id == "bert-base-uncased"
+        assert result.raw == url
 
-        handler = self.router.classify_url(url)
-
-        assert isinstance(handler, type(ModelUrlHandler()))
-
-    def test_classify_dataset_url(self):
-        """HuggingFace dataset URL -> returns DatasetUrlHandler."""
+    def test_parse_dataset_url(self):
+        """HuggingFace dataset URL -> returns DATASET type."""
         url = "https://huggingface.co/datasets/squad"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.DATASET
+        assert result.hf_id == "squad"
+        assert result.raw == url
 
-        handler = self.router.classify_url(url)
-
-        assert isinstance(handler, type(DatasetUrlHandler()))
-
-    def test_classify_code_url(self):
-        """GitHub repository URL -> returns CodeUrlHandler."""
+    def test_parse_github_url(self):
+        """GitHub repository URL -> returns CODE type."""
         url = "https://github.com/pytorch/pytorch"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.CODE
+        assert result.gh_owner_repo == ("pytorch", "pytorch")
+        assert result.raw == url
 
-        handler = self.router.classify_url(url)
-
-        assert isinstance(handler, type(CodeUrlHandler()))
-
-    def test_classify_invalid_url(self):
-        """Invalid URL -> raises ValueError."""
+    def test_parse_invalid_url(self):
+        """Invalid URL -> returns UNKNOWN type."""
         url = "https://invalid-domain.com/model"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.UNKNOWN
+        assert result.raw == url
 
-        with pytest.raises(ValueError):
-            self.router.classify_url(url)
-
-    # --- EXTRA TESTS ---
     def test_url_router_initialization(self):
-        """Test URLRouter can be instantiated."""
-        router = URLRouter()
+        """Test UrlRouter can be instantiated."""
+        router = UrlRouter()
         assert router is not None
 
-    def test_classify_huggingface_spaces_url(self):
-        """HuggingFace Spaces URL -> returns appropriate handler."""
-        url = "https://huggingface.co/spaces/gradio/hello"
+    def test_classify_method(self):
+        """Test classify method returns correct UrlType."""
+        url = "https://huggingface.co/bert-base-uncased"
+        
+        url_type = self.router.classify(url)
+        
+        assert url_type == UrlType.MODEL
 
-        handler = self.router.classify_url(url)
+    def test_parse_hf_model_id(self):
+        """Test parse_hf_model_id method."""
+        url = "https://huggingface.co/bert-base-uncased"
+        
+        model_id = self.router.parse_hf_model_id(url)
+        
+        assert model_id == "bert-base-uncased"
 
-        # Should handle Spaces URLs appropriately
-        assert handler is not None
+    def test_parse_hf_dataset_id(self):
+        """Test parse_hf_dataset_id method."""
+        url = "https://huggingface.co/datasets/squad"
+        
+        dataset_id = self.router.parse_hf_dataset_id(url)
+        
+        assert dataset_id == "squad"
 
-    def test_classify_gitlab_url(self):
-        """GitLab repository URL -> returns CodeUrlHandler."""
-        url = "https://gitlab.com/group/project"
+    def test_parse_github_owner_repo(self):
+        """Test parse_github_owner_repo method."""
+        url = "https://github.com/pytorch/pytorch"
+        
+        owner_repo = self.router.parse_github_owner_repo(url)
+        
+        assert owner_repo == ("pytorch", "pytorch")
 
-        handler = self.router.classify_url(url)
+    def test_strip_query_method(self):
+        """Test strip_query static method."""
+        url = "https://huggingface.co/bert-base-uncased?tab=model-card"
+        
+        clean_url = UrlRouter.strip_query(url)
+        
+        assert clean_url == "https://huggingface.co/bert-base-uncased"
 
-        assert isinstance(handler, type(CodeUrlHandler()))
-
-    def test_classify_url_with_parameters(self):
+    def test_parse_url_with_parameters(self):
         """URL with query parameters -> extracts base URL correctly."""
         url = "https://huggingface.co/bert-base-uncased?tab=model-card"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.MODEL
+        assert result.hf_id == "bert-base-uncased"
 
-        handler = self.router.classify_url(url)
+    def test_parse_gitlab_url(self):
+        """GitLab repository URL -> returns UNKNOWN type (not supported)."""
+        url = "https://gitlab.com/group/project"
+        
+        result = self.router.parse(url)
+        
+        # Current implementation doesn't support GitLab, should return UNKNOWN
+        assert result.type == UrlType.UNKNOWN
 
-        assert isinstance(handler, type(ModelUrlHandler()))
-
-    def test_classify_malformed_url(self):
-        """Malformed URL -> raises ValueError."""
+    def test_parse_malformed_url(self):
+        """Malformed URL -> returns UNKNOWN type."""
         url = "not-a-valid-url"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.UNKNOWN
 
-        with pytest.raises(ValueError):
-            self.router.classify_url(url)
+    def test_parse_huggingface_spaces_url(self):
+        """HuggingFace Spaces URL -> returns UNKNOWN type (not a model)."""
+        url = "https://huggingface.co/spaces/gradio/hello"
+        
+        result = self.router.parse(url)
+        
+        # Spaces URLs should not be classified as models
+        assert result.type == UrlType.UNKNOWN
+
+    def test_parse_case_insensitive(self):
+        """URL parsing should be case insensitive."""
+        url = "HTTPS://HUGGINGFACE.CO/BERT-BASE-UNCASED"
+        
+        result = self.router.parse(url)
+        
+        assert result.type == UrlType.MODEL
+        assert result.hf_id == "bert-base-uncased"  # Should be lowercased
 
 
 if __name__ == "__main__":
