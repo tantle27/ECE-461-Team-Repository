@@ -39,7 +39,7 @@ class UrlRouter:
     _HF_DATASET_RE = re.compile(
         (
             r"^https?://huggingface\.co/datasets/"
-            r"(?P<org>[^/\s]+)/(?P<name>[^/\s]+)"
+            r"(?P<id>[^/\s?#]+(?:/[^/\s?#]+)?)"
         ),
         re.IGNORECASE,
     )
@@ -47,7 +47,7 @@ class UrlRouter:
     _HF_MODEL_RE = re.compile(
         (
             r"^https?://huggingface\.co/"
-            r"(?P<org>[^/\s]+)/(?P<name>[^/\s]+)"
+            r"(?P<id>[^/\s?#]+(?:/[^/\s?#]+)?)"
         ),
         re.IGNORECASE,
     )
@@ -78,22 +78,20 @@ class UrlRouter:
 
         m = self._HF_DATASET_RE.match(clean)
         if m:
-            org = m.group("org").lower()
-            name = m.group("name").lower()
+            id_part = m.group("id").lower()
             return ParsedUrl(
                 raw=url,
                 type=UrlType.DATASET,
-                hf_id=f"{org}/{name}",
+                hf_id=id_part,
             )
 
         m = self._HF_MODEL_RE.match(clean)
         if m and "/datasets/" not in low and "/spaces/" not in low:
-            org = m.group("org").lower()
-            name = m.group("name").lower()
+            id_part = m.group("id").lower()
             return ParsedUrl(
                 raw=url,
                 type=UrlType.MODEL,
-                hf_id=f"{org}/{name}",
+                hf_id=id_part,
             )
 
         m = self._GH_RE.match(clean)
