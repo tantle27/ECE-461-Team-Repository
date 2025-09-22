@@ -2,6 +2,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
+from collections.abc import Mapping
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -38,8 +39,7 @@ def _retry_policy() -> Retry:
 
 def _make_session(token: Optional[str]) -> requests.Session:
     s = requests.Session()
-    adapter = _TimeoutHTTPAdapter(max_retries=_retry_policy(),
-                                  timeout=30)
+    adapter = _TimeoutHTTPAdapter(max_retries=_retry_policy(), timeout=30)
     s.mount("https://", adapter)
     s.mount("http://", adapter)
 
@@ -53,7 +53,38 @@ def _make_session(token: Optional[str]) -> requests.Session:
     return s
 
 
+def _normalize_card_data(card_obj: Any) -> dict[str, Any]:
+    """
+    Convert huggingface_hub ModelCardData (or similar) to a plain dict.
+    Works across hub versions; falls back to {} if anything goes sideways.
+    """
+    try:
+        if card_obj is None:
+            return {}
+        # Most versions expose .to_dict()
+        if hasattr(card_obj, "to_dict") and callable(card_obj.to_dict):
+            return dict(card_obj.to_dict())
+        # Some expose .data (already a mapping)
+        if hasattr(card_obj, "data"):
+            data = getattr(card_obj, "data")
+            if isinstance(data, Mapping):
+                return dict(data)
+        # Already a dict?
+        if isinstance(card_obj, Mapping):
+            return dict(card_obj)
+        # Pydantic-like or dataclass: try .model_dump() / .dict() / .json()
+        if hasattr(card_obj, "model_dump"):
+            return dict(card_obj.model_dump())
+        if hasattr(card_obj, "dict"):
+            return dict(card_obj.dict())
+        if hasattr(card_obj, "json"):
+            import json
+            return json.loads(card_obj.json())
+    except Exception:
+        pass
+    return {}
 # ---- data models ----
+
 
 @dataclass
 class HFModelInfo:
@@ -94,7 +125,12 @@ class HFClient:
     """Convenience wrapper around huggingface_hub + raw HTTP (requests)."""
 
     def __init__(self) -> None:
-        self.token = os.getenv("HUGGINGFACE_HUB_TOKEN")
+        # Accept any of the common env var names
+        self.token = (
+            os.getenv("HUGGINGFACE_HUB_TOKEN")
+            or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+            or os.getenv("HF_TOKEN")
+        )
         self.api = HfApi(token=self.token)
         self._http = _make_session(self.token)
 
@@ -116,28 +152,49 @@ class HFClient:
     ) -> list[HFFileInfo]:
         """repo_type in {'model','dataset'}."""
         try:
-            paths = _retry(
-                lambda: self.api.list_repo_files(hf_id, repo_type=repo_type)
-            )
+            paths = _retry(lambda: self.api.list_repo_files(
+                hf_id, repo_type=repo_type))
             try:
-                infos = _retry(
-                    lambda: self.api.get_paths_info(
-                        hf_id, paths=paths, repo_type=repo_type
-                    )
-                )
+                infos = _retry(lambda: self.api.get_paths_info(
+                    hf_id, paths=paths, repo_type=repo_type))
                 return [HFFileInfo(path=i.path, size=i.size) for i in infos]
             except AttributeError:
                 return [HFFileInfo(path=p, size=None) for p in paths]
         except (GatedRepoError, RepositoryNotFoundError, HfHubHTTPError):
             raise
 
-    def get_readme(self, hf_id: str, *, revision: str = "main") -> str | None:
-        urls = [
-            f"https://huggingface.co/{hf_id}/raw/{revision}/README.md",
-            f"https://huggingface.co/{hf_id}/raw/{revision}/README.MD",
-            f"https://huggingface.co/{hf_id}/raw/{revision}/readme.md",
-        ]
-        for u in urls:
+    def get_readme(
+        self,
+        hf_id: str,
+        *,
+        revision: str = "main",
+        repo_type: Optional[str] = None,
+    ) -> str | None:
+        """
+        Try to fetch README text for models or datasets.
+        Accepts hf_id in either form: 'org/name' or 'datasets/org/name'.
+        """
+        # Normalize both forms
+        plain = hf_id.removeprefix("datasets/")
+        with_prefix = f"datasets/{plain}"
+
+        bases: list[str]
+        if repo_type == "dataset":
+            bases = [with_prefix, plain]
+        elif repo_type == "model":
+            bases = [plain, with_prefix]
+        else:
+            bases = [plain, with_prefix]
+
+        candidates: list[str] = []
+        for base in bases:
+            candidates.extend([
+                f"https://huggingface.co/{base}/raw/{revision}/README.md",
+                f"https://huggingface.co/{base}/raw/{revision}/README.MD",
+                f"https://huggingface.co/{base}/raw/{revision}/readme.md",
+            ])
+
+        for u in candidates:
             text = _retry(lambda: self._get_text(u))
             if text:
                 return text
@@ -149,16 +206,39 @@ class HFClient:
         *,
         revision: str = "main",
     ) -> dict | None:
-        url = f"https://huggingface.co/{hf_id}/raw/{revision}/model_index.json"
-        return _retry(lambda: self._get_json(url))
+        # Try both forms here as well, just in case
+        plain = hf_id.removeprefix("datasets/")
+        with_prefix = f"datasets/{plain}"
+        urls = [
+            f"https://huggingface.co/{plain}/raw/{revision}/model_index.json",
+            f"https://huggingface.co/{
+                with_prefix}/raw/{revision}/model_index.json",
+        ]
+        for url in urls:
+            data = _retry(lambda: self._get_json(url))
+            if data is not None:
+                return data
+        return None
 
     # ---- internals ----
 
     def _to_info(self, hf_id: str, info: Any) -> HFModelInfo:
+        # Normalize card data safely
+        card_data = _normalize_card_data(getattr(info, "cardData", None))
+
+        # Normalize tags → list[str]
+        raw_tags = getattr(info, "tags", None)
+        if raw_tags is None:
+            tags: list[str] = []
+        elif isinstance(raw_tags, (list, set, tuple)):
+            tags = [str(t) for t in raw_tags]
+        else:
+            tags = [str(raw_tags)]
+
         return HFModelInfo(
             hf_id=hf_id,
-            card_data=getattr(info, "cardData", None) or {},
-            tags=list(getattr(info, "tags", []) or []),
+            card_data=card_data,
+            tags=tags,
             likes=getattr(info, "likes", None),
             downloads_30d=getattr(info, "downloads", None),
             downloads_all_time=getattr(info, "downloadsAllTime", None),
@@ -172,6 +252,10 @@ class HFClient:
         r = self._http.get(url)
         if r.status_code == 404:
             return None
+        if r.status_code == 401:
+            # Surface as gated/private so handlers can set ctx.gated=True
+            raise GatedRepoError(
+                f"401 Unauthorized for {url}. Token missing or access not granted.")
         r.raise_for_status()
         return r.text
 
@@ -179,5 +263,7 @@ class HFClient:
         r = self._http.get(url)
         if r.status_code == 404:
             return None
+        if r.status_code == 401:
+            raise GatedRepoError(f"401 Unauthorized for {url}. Token missing or access not granted.")
         r.raise_for_status()
         return r.json()
