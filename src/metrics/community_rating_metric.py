@@ -1,5 +1,4 @@
 from .base_metric import BaseMetric
-import math
 
 
 class CommunityRatingMetric(BaseMetric):
@@ -25,7 +24,7 @@ class CommunityRatingMetric(BaseMetric):
 
     def evaluate(self, repo_context: dict) -> float:
         """
-        Evaluate community engagement for a model.
+        Evaluate community engagement using specific thresholds.
 
         Args:
             repo_context (dict): Dictionary containing model information
@@ -34,7 +33,10 @@ class CommunityRatingMetric(BaseMetric):
                 - 'hf_downloads': Number of downloads
 
         Returns:
-            float: Score between 0.0 and 1.0 based on community engagement
+            float: Score between 0.0 and 1.0 based on likes and downloads:
+                  Likes: 0:<5:0.1, <10:0.2, <50:0.3, <100:0.4, >100:0.5
+                  Downloads: <1k:0, <5k:0.1, <10k:0.2, <50k:0.3,
+                            <100k:0.4, >100k:0.5
         """
         if not repo_context:
             return 0.0
@@ -46,17 +48,36 @@ class CommunityRatingMetric(BaseMetric):
         if likes < 0 or downloads < 0:
             raise ValueError("Likes and downloads must be non-negative")
 
-        # Logarithmic scaling for likes
-        likes_score = 0.0
-        if likes > 0:
-            likes_score = math.log10(likes + 1) / 5.0
+        # Likes scoring with specific thresholds
+        if likes == 0:
+            likes_score = 0.0
+        elif likes < 5:
+            likes_score = 0.1
+        elif likes < 10:
+            likes_score = 0.2
+        elif likes < 50:
+            likes_score = 0.3
+        elif likes < 100:
+            likes_score = 0.4
+        else:
+            likes_score = 0.5
 
-        # Logarithmic scaling for downloads
-        downloads_score = 0.0
-        if downloads > 0:
-            downloads_score = math.log10(downloads + 1) / 6.0
+        # Downloads scoring with specific thresholds (in thousands)
+        downloads_k = downloads / 1000.0
+        if downloads_k < 1:
+            downloads_score = 0.0
+        elif downloads_k < 5:
+            downloads_score = 0.1
+        elif downloads_k < 10:
+            downloads_score = 0.2
+        elif downloads_k < 50:
+            downloads_score = 0.3
+        elif downloads_k < 100:
+            downloads_score = 0.4
+        else:
+            downloads_score = 0.5
 
-        # Combined score (simple addition)
+        # Combined score (sum of both components)
         combined_score = likes_score + downloads_score
 
         return max(0.0, min(1.0, combined_score))

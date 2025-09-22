@@ -1,33 +1,57 @@
 """
-Code Quality Metric for evaluating code quality through testing and analysis.
+Code Quality Metric for evaluating code quality using LLM analysis.
 """
 
 from .base_metric import BaseMetric
+import os
+import sys
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+
+try:
+    from utils.llm_analyzer import LLMAnalyzer
+except ImportError:
+    LLMAnalyzer = None
 
 
 class CodeQualityMetric(BaseMetric):
     """
-    Metric to evaluate the code quality of AI/ML model repositories.
+    Metric to evaluate code quality using LLM analysis.
 
-    This metric considers testing coverage, linting, and code complexity
-    to assess overall code quality and maintainability.
+    Uses LLM to analyze code structure, maintainability, documentation,
+    and best practices to assess overall code quality.
     """
 
     def __init__(self, weight: float = 0.2):
         super().__init__(name="CodeQuality", weight=weight)
+        self.llm_analyzer = LLMAnalyzer() if LLMAnalyzer else None
 
     def evaluate(self, repo_context: dict) -> float:
         """
-        Evaluate the code quality for a given model repository.
+        Evaluate code quality using LLM analysis of code and documentation.
 
         Args:
             repo_context (dict): Dictionary containing repository information
-                               including testing and code quality metrics.
+                               including code content and README.
 
         Returns:
-            float: Score between 0.0 and 1.0, where 1.0 indicates excellent
-                  code quality and 0.0 indicates poor quality.
+            float: Score between 0.0 and 1.0 from LLM analysis of code
+                  quality, maintainability, and best practices.
         """
+        code_content = repo_context.get('code_content', '')
+        readme_content = repo_context.get('readme_content', '')
+
+        if self.llm_analyzer and code_content:
+            return self.llm_analyzer.analyze_code_quality(
+                code_content, readme_content)
+
+        # Fallback to basic analysis if LLM unavailable
+        return self._fallback_analysis(repo_context)
+
+    def _fallback_analysis(self, repo_context: dict) -> float:
+        """Fallback analysis when LLM is unavailable."""
         has_tests = repo_context.get('has_tests', False)
         test_coverage = repo_context.get('test_coverage', 0.0)
         has_linting = repo_context.get('has_linting', False)
@@ -51,4 +75,4 @@ class CodeQualityMetric(BaseMetric):
 
     def get_description(self) -> str:
         """Get description of the metric."""
-        return "Evaluates code quality through testing and static analysis"
+        return "Evaluates code quality using LLM analysis"

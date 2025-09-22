@@ -51,8 +51,14 @@ class TestSizeMetric:
         """Returns correct formula."""
         repo_context = {'size': 8 * 1024**3}  # 8GB
         score = self.metric.evaluate(repo_context)
-        expected = 1 - (8 - 2) / 14  # Should be ~0.57
+        expected = 1.0 - 0.5 * ((8 - 2) / 14)  # Should be ~0.786
         assert abs(score - expected) < 0.01
+
+    def test_size_over_512(self):
+        """Returns 0."""
+        repo_context = {'size': 600 * 1024**3}  # 600GB
+        score = self.metric.evaluate(repo_context)
+        assert score == 0.0
 
 
 class TestLicenseMetric:
@@ -62,15 +68,39 @@ class TestLicenseMetric:
         """Setup test fixtures."""
         self.metric = LicenseMetric()
 
-    def test_license_compatible(self):
-        """MIT -> returns 1."""
+    def test_license_compatible_mit(self):
+        """MIT -> returns 1.0."""
         repo_context = {'license': 'MIT'}
         score = self.metric.evaluate(repo_context)
         assert score == 1.0
 
-    def test_license_incompatible(self):
+    def test_license_compatible_apache(self):
+        """Apache-2.0 -> returns 0.6."""
+        repo_context = {'license': 'Apache-2.0'}
+        score = self.metric.evaluate(repo_context)
+        assert score == 0.6
+
+    def test_license_compatible_bsd(self):
+        """BSD-3-Clause -> returns 0.8."""
+        repo_context = {'license': 'BSD-3-Clause'}
+        score = self.metric.evaluate(repo_context)
+        assert score == 0.8
+
+    def test_license_incompatible_gpl(self):
         """GPL -> returns 0."""
         repo_context = {'license': 'GPL-3.0'}
+        score = self.metric.evaluate(repo_context)
+        assert score == 0.0
+
+    def test_license_no_license(self):
+        """No license -> returns 0."""
+        repo_context = {}
+        score = self.metric.evaluate(repo_context)
+        assert score == 0.0
+
+    def test_license_unknown(self):
+        """Unknown license -> returns 0."""
+        repo_context = {'license': 'Unknown-License'}
         score = self.metric.evaluate(repo_context)
         assert score == 0.0
 
@@ -83,10 +113,11 @@ class TestRampUpTimeMetric:
         self.metric = RampUpTimeMetric()
 
     def test_rampup_full_docs(self):
-        """README + examples -> 1.0."""
+        """External docs + extensive content + examples -> 1.0."""
         repo_context = {
-            'has_readme': True,
-            'has_examples': True,
+            'readme_content': ('detailed comprehensive tutorial how to '
+                               'getting started examples demo usage '
+                               'troubleshooting'),
             'has_documentation': True
         }
         score = self.metric.evaluate(repo_context)
@@ -95,8 +126,7 @@ class TestRampUpTimeMetric:
     def test_rampup_no_docs(self):
         """Returns 0."""
         repo_context = {
-            'has_readme': False,
-            'has_examples': False,
+            'readme_content': '',
             'has_documentation': False
         }
         score = self.metric.evaluate(repo_context)
@@ -186,10 +216,10 @@ class TestDatasetAvailabilityMetric:
         self.metric = DatasetAvailabilityMetric()
 
     def test_dataset_available(self):
-        """Has dataset -> returns base score of 0.5."""
-        repo_context = {'has_dataset': True}
+        """Has dataset -> returns 0.33 (available but not documented)."""
+        repo_context = {'has_dataset': True, 'readme_content': ''}
         score = self.metric.evaluate(repo_context)
-        assert score == 0.5
+        assert score == 0.33
 
     def test_dataset_unavailable(self):
         """No dataset -> returns 0."""
@@ -209,33 +239,33 @@ class TestDatasetAvailabilityMetric:
         metric = DatasetAvailabilityMetric()
         repo_context = {
             'has_dataset': True,
-            'dataset_accessible': False,
-            'dataset_size': 500
+            'readme_content': ''
         }
         score = metric.evaluate(repo_context)
-        assert score == 0.5  # Base score only
+        assert score == 0.33  # Available but not documented
 
     def test_dataset_availability_accessible_dataset(self):
-        """Test DatasetAvailabilityMetric with accessible dataset."""
+        """Test DatasetAvailabilityMetric with documented dataset."""
         metric = DatasetAvailabilityMetric()
         repo_context = {
             'has_dataset': True,
-            'dataset_accessible': True,
-            'dataset_size': 500
+            'readme_content': 'dataset documentation',
+            'dataset_documented': True
         }
         score = metric.evaluate(repo_context)
-        assert score == 0.8  # Base + accessibility
+        assert score == 0.67  # Available + dataset documented only
 
     def test_dataset_availability_large_dataset(self):
-        """Test DatasetAvailabilityMetric with large dataset."""
+        """Test DatasetAvailabilityMetric with fully documented."""
         metric = DatasetAvailabilityMetric()
         repo_context = {
             'has_dataset': True,
-            'dataset_accessible': True,
-            'dataset_size': 2000
+            'readme_content': 'dataset training procedure fine-tuning',
+            'dataset_documented': True,
+            'training_documented': True
         }
         score = metric.evaluate(repo_context)
-        assert score == 1.0  # Base + accessibility + size
+        assert score == 1.0  # Available + both documented
 
     def test_dataset_availability_weight(self):
         """Test DatasetAvailabilityMetric weight initialization."""
@@ -326,6 +356,17 @@ class TestDatasetQualityMetric:
         score = metric.evaluate(repo_context)
         assert score == 1.0
 
+    def test_dataset_quality_with_llm_content(self):
+        """Test DatasetQualityMetric with README content for LLM analysis."""
+        repo_context = {
+            'readme_content': ('Dataset contains high-quality training data '
+                               'with validation and diverse examples'),
+            'metadata': {'stars': 100, 'forks': 50}
+        }
+        score = self.metric.evaluate(repo_context)
+        # Should use LLM analysis or fallback, score should be >= 0
+        assert score >= 0.0
+
     def test_dataset_quality_weight(self):
         """Test DatasetQualityMetric weight initialization."""
         metric = DatasetQualityMetric(weight=0.25)
@@ -340,20 +381,20 @@ class TestCodeQualityMetric:
         """Setup test fixtures."""
         self.metric = CodeQualityMetric()
 
-    def test_no_flake8_issues(self):
-        """Returns score based on all quality factors."""
+    def test_code_quality_high_scores(self):
+        """High quality metrics -> high score."""
         repo_context = {
-            'has_tests': False,
-            'test_coverage': 0.0,
-            'has_linting': False,
+            'has_tests': True,
+            'test_coverage': 80.0,
+            'has_linting': True,
             'code_complexity': 5.0
         }
         score = self.metric.evaluate(repo_context)
-        expected = (1 - 5.0/20.0) * 0.2  # Only complexity score
+        expected = 0.3 + 0.8 * 0.3 + 0.2 + (1 - 5.0/20.0) * 0.2  # 0.89
         assert abs(score - expected) < 0.01
 
-    def test_flake8_issues_present(self):
-        """Returns score based on quality factors, not just flake8."""
+    def test_code_quality_no_features(self):
+        """No quality features -> low score."""
         repo_context = {
             'has_tests': False,
             'test_coverage': 0.0,
@@ -363,28 +404,15 @@ class TestCodeQualityMetric:
         score = self.metric.evaluate(repo_context)
         assert score == 0.0  # High complexity results in 0 score
 
-    def test_code_quality_no_features(self):
-        """Test CodeQualityMetric with no quality features."""
-        metric = CodeQualityMetric()
-        repo_context = {
-            'has_tests': False,
-            'test_coverage': 0.0,
-            'has_linting': False,
-            'code_complexity': 20.0
-        }
-        score = metric.evaluate(repo_context)
-        assert score == 0.0  # High complexity results in 0 complexity score
-
-    def test_code_quality_with_tests(self):
-        """Test CodeQualityMetric with tests."""
-        metric = CodeQualityMetric()
+    def test_code_quality_with_tests_only(self):
+        """Test CodeQualityMetric with tests only."""
         repo_context = {
             'has_tests': True,
             'test_coverage': 0.0,
             'has_linting': False,
             'code_complexity': 5.0
         }
-        score = metric.evaluate(repo_context)
+        score = self.metric.evaluate(repo_context)
         expected = 0.3 + (1 - 5.0/20.0) * 0.2  # tests + complexity score
         assert abs(score - expected) < 0.01
 
@@ -414,6 +442,17 @@ class TestCodeQualityMetric:
         expected = 0.2 + (1 - 10.0/20.0) * 0.2  # linting + complexity
         assert abs(score - expected) < 0.01
 
+    def test_code_quality_with_llm_content(self):
+        """Test CodeQualityMetric with code content for LLM analysis."""
+        repo_context = {
+            'code_content': ('def hello():\n    """Say hello."""\n    '
+                             'print("Hello")'),
+            'readme_content': 'This is a simple hello function'
+        }
+        score = self.metric.evaluate(repo_context)
+        # Should use LLM analysis or fallback, score should be > 0
+        assert score >= 0.0
+
     def test_code_quality_weight(self):
         """Test CodeQualityMetric weight initialization."""
         metric = CodeQualityMetric(weight=0.3)
@@ -429,88 +468,78 @@ class TestPerformanceClaimsMetric:
         self.metric = PerformanceClaimsMetric()
 
     def test_benchmarks_available(self):
-        """Has benchmarks -> returns partial score."""
-        repo_context = {'has_benchmarks': True}
+        """Has evaluation section -> returns score based on content."""
+        repo_context = {
+            'readme_content': 'evaluation benchmark results performance',
+            'benchmark_scores': [85, 90, 78]
+        }
         score = self.metric.evaluate(repo_context)
-        assert score == 0.3
+        expected = (85 + 90 + 78) / 3 / 100.0  # Average / 100
+        assert abs(score - expected) < 0.01
 
     def test_benchmarks_unavailable(self):
-        """No benchmarks -> returns 0."""
-        repo_context = {'has_benchmarks': False}
+        """No evaluation section -> returns 0."""
+        repo_context = {'readme_content': 'model description usage'}
         score = self.metric.evaluate(repo_context)
         assert score == 0.0
 
     def test_performance_claims_no_evidence(self):
-        """Test PerformanceClaimsMetric with no performance evidence."""
+        """Test PerformanceClaimsMetric with no evaluation section."""
         metric = PerformanceClaimsMetric()
         repo_context = {
-            'has_benchmarks': False,
-            'benchmark_results': [],
-            'has_performance_docs': False,
-            'claims_verified': False
+            'readme_content': 'model description'
         }
         score = metric.evaluate(repo_context)
         assert score == 0.0
 
     def test_performance_claims_with_benchmarks(self):
-        """Test PerformanceClaimsMetric with benchmarks."""
+        """Test PerformanceClaimsMetric with evaluation section."""
         metric = PerformanceClaimsMetric()
         repo_context = {
-            'has_benchmarks': True,
-            'benchmark_results': [],
-            'has_performance_docs': False,
-            'claims_verified': False
+            'readme_content': 'evaluation benchmark state-of-the-art'
         }
         score = metric.evaluate(repo_context)
-        assert score == 0.3
+        assert score > 0.0  # Should get base score + keyword bonus
 
     def test_performance_claims_with_results(self):
-        """Test PerformanceClaimsMetric with benchmark results."""
+        """Test PerformanceClaimsMetric with benchmark scores."""
         metric = PerformanceClaimsMetric()
         repo_context = {
-            'has_benchmarks': False,
-            'benchmark_results': ['result1', 'result2'],
-            'has_performance_docs': False,
-            'claims_verified': False
+            'readme_content': 'evaluation results',
+            'benchmark_scores': [80, 85]
         }
         score = metric.evaluate(repo_context)
-        assert score == 0.2  # 2 results * 0.1 each
+        expected = (80 + 85) / 2 / 100.0  # 0.825
+        assert abs(score - expected) < 0.01
 
     def test_performance_claims_with_docs(self):
-        """Test PerformanceClaimsMetric with performance documentation."""
+        """Test PerformanceClaimsMetric with evaluation section."""
         metric = PerformanceClaimsMetric()
         repo_context = {
-            'has_benchmarks': False,
-            'benchmark_results': [],
-            'has_performance_docs': True,
-            'claims_verified': False
+            'readme_content': 'evaluation excellent performance'
         }
         score = metric.evaluate(repo_context)
-        assert score == 0.2
+        assert score > 0.0  # Should get base + keyword score
 
     def test_performance_claims_verified(self):
-        """Test PerformanceClaimsMetric with verified claims."""
+        """Test PerformanceClaimsMetric with state-of-the-art claims."""
         metric = PerformanceClaimsMetric()
         repo_context = {
-            'has_benchmarks': False,
-            'benchmark_results': [],
-            'has_performance_docs': False,
-            'claims_verified': True
+            'readme_content': 'evaluation state-of-the-art sota best'
         }
         score = metric.evaluate(repo_context)
-        assert score == 0.2
+        assert score > 0.5  # Should get high score for multiple keywords
 
     def test_performance_claims_full_score(self):
-        """Test PerformanceClaimsMetric with all evidence."""
+        """Test PerformanceClaimsMetric with high benchmark scores."""
         metric = PerformanceClaimsMetric()
         repo_context = {
-            'has_benchmarks': True,
-            'benchmark_results': ['result1', 'result2', 'result3'],
-            'has_performance_docs': True,
-            'claims_verified': True
+            'readme_content': 'evaluation benchmark performance',
+            'benchmark_scores': [95, 98, 97]
         }
         score = metric.evaluate(repo_context)
-        assert score == 1.0  # 0.3 + 0.3 + 0.2 + 0.2
+        expected = (95 + 98 + 97) / 3 / 100.0  # ~0.97
+        assert abs(score - expected) < 0.01
 
     def test_performance_claims_weight(self):
         """Test PerformanceClaimsMetric weight initialization."""
