@@ -22,11 +22,11 @@ class LLMAnalyzer:
                                 metadata: Dict[str, Any]) -> float:
         """
         Analyze dataset quality using LLM.
-        
+
         Args:
             readme_content: The README file content
             metadata: Repository metadata dictionary
-            
+
         Returns:
             float: Score between 0.0 and 1.0
         """
@@ -64,11 +64,11 @@ Return only a number between 0.0 and 1.0:
                              readme_content: str) -> float:
         """
         Analyze code quality using LLM.
-        
+
         Args:
             code_content: Sample code content
             readme_content: README content for context
-            
+
         Returns:
             float: Score between 0.0 and 1.0
         """
@@ -101,6 +101,60 @@ Return only a number between 0.0 and 1.0:
         except Exception as e:
             print(f"LLM code analysis failed: {e}")
             return self._fallback_code_analysis(code_content, readme_content)
+
+    def analyze_rampup_time(self, readme_content: str,
+                            has_external_docs: bool = False) -> float:
+        """
+        Analyze ramp-up time using LLM.
+
+        Args:
+            readme_content: The README file content
+            has_external_docs: Whether external documentation exists
+
+        Returns:
+            float: Score from 0.0 to 1.0 representing ramp-up ease
+        """
+        if not readme_content and not has_external_docs:
+            return 0.0
+
+        prompt = f"""
+        Analyze this README content for ramp-up time and ease of
+        getting started.
+
+        README Content:
+        {readme_content[:2000]}
+
+        Has External Documentation: {has_external_docs}
+
+        Rate the documentation quality for new users (0.0-1.0):
+
+        Criteria:
+        - 1.0: External docs + comprehensive how-to + multiple examples
+        - 0.75: Documentation + clear how-to + good examples
+        - 0.5: Documentation + some how-to OR examples
+        - 0.25: Basic documentation present
+        - 0.0: No useful documentation
+
+        Look for: installation instructions, getting started guides,
+        tutorials, code examples, usage demos, troubleshooting.
+
+        Return only a number between 0.0 and 1.0.
+        """
+
+        try:
+            response = self._call_llm(prompt)
+            if response:
+                import re
+                score_match = re.search(r'\b(0\.\d+|1\.0|0|1)\b', response)
+                if score_match:
+                    score = float(score_match.group(1))
+                    return max(0.0, min(1.0, score))
+        except (ImportError, AttributeError, ValueError, KeyError):
+            pass  # Fall back to rule-based
+
+        # Fallback to rule-based analysis
+        return self._fallback_rampup_analysis(readme_content,
+                                              has_external_docs)
 
     def _call_llm(self, prompt: str) -> str:
         """Make API call to LLM service."""
@@ -136,24 +190,24 @@ Return only a number between 0.0 and 1.0:
                                    metadata: Dict[str, Any]) -> float:
         """Rule-based fallback for dataset quality analysis."""
         readme_lower = readme_content.lower()
-        
+
         # Check for dataset quality indicators
         quality_indicators = [
             'dataset', 'training data', 'validation', 'preprocessing',
             'data quality', 'bias', 'diversity', 'balanced'
         ]
-        
+
         score = 0.0
         for indicator in quality_indicators:
             if indicator in readme_lower:
                 score += 0.1
-        
+
         # Bonus for detailed documentation
         if 'evaluation' in readme_lower:
             score += 0.1
         if 'benchmark' in readme_lower:
             score += 0.1
-        
+
         return min(1.0, score)
 
     def _fallback_code_analysis(self, code_content: str,
@@ -161,33 +215,84 @@ Return only a number between 0.0 and 1.0:
         """Rule-based fallback for code quality analysis."""
         if not code_content:
             return 0.0
-        
+
         lines = code_content.split('\n')
         total_lines = len(lines)
-        
+
         if total_lines == 0:
             return 0.0
-        
+
         # Count comments and docstrings
         comment_lines = sum(1 for line in lines if line.strip().startswith(
             ('#', '"""', "'''", '//', '*', '/*')))
-        
+
         # Check for error handling
         error_keywords = ['try', 'except', 'catch', 'error', 'exception']
         error_handling = any(keyword in code_content.lower()
                              for keyword in error_keywords)
-        
+
         # Check for functions/classes
         structure_keywords = ['def ', 'class ', 'function ']
         has_structure = any(keyword in code_content
                             for keyword in structure_keywords)
-        
+
         # Calculate score
         documentation_ratio = comment_lines / total_lines
         score = 0.3  # Base score
-        
+
         score += min(0.3, documentation_ratio * 2)  # Documentation
         score += 0.2 if error_handling else 0  # Error handling
         score += 0.2 if has_structure else 0  # Code structure
-        
+
         return min(1.0, score)
+
+    def _fallback_rampup_analysis(self, readme_content: str,
+                                  has_external_docs: bool) -> float:
+        """
+        Rule-based fallback for ramp-up time analysis.
+
+        Args:
+            readme_content: The README file content
+            has_external_docs: Whether external documentation exists
+
+        Returns:
+            float: Score from 0.0 to 1.0
+        """
+        if not readme_content and not has_external_docs:
+            return 0.0
+
+        readme_lower = readme_content.lower()
+
+        # Check for how-to sections
+        how_to_indicators = ['how to', 'tutorial', 'guide',
+                             'getting started', 'quickstart', 'setup',
+                             'installation', 'usage']
+        has_how_to = any(indicator in readme_lower
+                         for indicator in how_to_indicators)
+
+        # Check for examples
+        example_indicators = ['example', 'demo', 'sample', 'usage',
+                              'code example', '```', 'import', 'from']
+        has_examples = any(indicator in readme_lower
+                           for indicator in example_indicators)
+
+        # Check for extensive documentation
+        extensive_indicators = ['detailed', 'comprehensive',
+                                'documentation', 'reference', 'api',
+                                'troubleshooting', 'advanced']
+        has_extensive = any(indicator in readme_lower
+                            for indicator in extensive_indicators)
+
+        # Calculate score
+        if (has_external_docs and has_extensive and
+                has_how_to and has_examples):
+            return 1.0  # Full documentation
+        elif ((has_external_docs or has_extensive) and
+              has_how_to and has_examples):
+            return 0.75  # Good documentation
+        elif has_how_to or has_examples:
+            return 0.5  # Some documentation
+        elif readme_content or has_external_docs:
+            return 0.25  # Basic documentation
+        else:
+            return 0.0

@@ -34,12 +34,15 @@ class DatasetAvailabilityMetric(BaseMetric):
                   - 1.0: Dataset available + well documented AND
                          training documented
         """
-        has_dataset = repo_context.get('has_dataset', False)
-        dataset_documented = repo_context.get('dataset_documented', False)
-        training_documented = repo_context.get('training_documented', False)
+        # Check for linked datasets in the repo_context
+        has_dataset = bool(repo_context.get('linked_datasets', []))
+        
+        # Initialize documentation flags
+        dataset_documented = False
+        training_documented = False
         
         # Check README for dataset/training documentation
-        readme_content = repo_context.get('readme_content', '').lower()
+        readme_content = repo_context.get('readme_text', '').lower()
         
         # Analyze README for dataset documentation
         dataset_indicators = ['dataset', 'data', 'training data', 'corpus']

@@ -56,7 +56,21 @@ class LicenseMetric(BaseMetric):
                   - 0.2: LGPLv2.1
                   - 0.0: Incompatible (GPL, AGPL, etc.)
         """
-        license_name = repo_context.get('license', '').lower().strip()
+        # Extract license from metadata sources
+        license_name = ''
+        card_data = repo_context.get('card_data', {})
+        model_index = repo_context.get('model_index', {})
+        config_json = repo_context.get('config_json', {})
+        
+        if card_data and card_data.get('license'):
+            license_name = card_data.get('license', '')
+        elif model_index and model_index.get('license'):
+            license_name = model_index.get('license', '')
+        elif config_json and config_json.get('license'):
+            license_name = config_json.get('license', '')
+            
+        if isinstance(license_name, str):
+            license_name = license_name.lower().strip()
 
         if not license_name:
             return 0.0  # No license specified

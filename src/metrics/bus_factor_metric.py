@@ -34,14 +34,23 @@ class BusFactorMetric(BaseMetric):
         if not contributors:
             return 0.0
 
-        total_contributions = sum(
-            c.get('contributions', 0) for c in contributors
-        )
+        # Get contributions from each contributor
+        contributions = []
+        for c in contributors:
+            if isinstance(c, dict) and 'contributions' in c:
+                contributions.append(c.get('contributions', 0))
+            elif hasattr(c, 'contributions'):
+                contributions.append(c.contributions)
+        
+        if not contributions:
+            return 0.0
+        
+        total_contributions = sum(contributions)
         if total_contributions == 0:
             return 0.0
 
         # Calculate contribution distribution
-        max_contribution = max(c.get('contributions', 0) for c in contributors)
+        max_contribution = max(contributions)
         concentration = max_contribution / total_contributions
 
         # Higher concentration = lower bus factor = lower score

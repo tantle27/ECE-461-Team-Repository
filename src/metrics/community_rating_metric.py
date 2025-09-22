@@ -29,8 +29,8 @@ class CommunityRatingMetric(BaseMetric):
         Args:
             repo_context (dict): Dictionary containing model information
                 Expected keys:
-                - 'hf_likes': Number of likes/stars
-                - 'hf_downloads': Number of downloads
+                - 'likes': Number of likes/stars
+                - 'downloads_all_time': Total number of downloads
 
         Returns:
             float: Score between 0.0 and 1.0 based on likes and downloads:
@@ -41,8 +41,8 @@ class CommunityRatingMetric(BaseMetric):
         if not repo_context:
             return 0.0
 
-        likes = repo_context.get('hf_likes', 0)
-        downloads = repo_context.get('hf_downloads', 0)
+        likes = repo_context.get('likes', 0) or 0
+        downloads = repo_context.get('downloads_all_time', 0) or 0
 
         # Handle negative values
         if likes < 0 or downloads < 0:

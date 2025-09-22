@@ -30,8 +30,22 @@ class PerformanceClaimsMetric(BaseMetric):
                   - 0.0-1.0: Based on benchmark performance scores
                             (averages scores and divides by 100)
         """
-        readme_content = repo_context.get('readme_content', '').lower()
-        benchmark_scores = repo_context.get('benchmark_scores', [])
+        readme_content = repo_context.get('readme_text', '').lower()
+        
+        # Extract benchmark scores from metadata or model card
+        benchmark_scores = []
+        
+        # Check card_data for benchmark information
+        card_data = repo_context.get('card_data', {})
+        if card_data and isinstance(card_data, dict):
+            # Extract benchmark scores from card_data if available
+            if 'benchmarks' in card_data:
+                benchmarks = card_data.get('benchmarks', [])
+                if isinstance(benchmarks, list):
+                    for benchmark in benchmarks:
+                        if (isinstance(benchmark, dict) and
+                                'score' in benchmark):
+                            benchmark_scores.append(benchmark.get('score', 0))
         
         # Check for evaluation/benchmark sections in README
         eval_indicators = ['evaluation', 'benchmark', 'performance',

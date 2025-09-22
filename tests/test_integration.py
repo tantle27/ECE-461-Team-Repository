@@ -130,8 +130,9 @@ class TestIntegrationMetricsSystem:
         gpt2_result = next(r for r in results if r["model"] == "gpt-2-large")
         bert_result = next(r for r in results if r["model"] == "bert-base")
 
-        assert (gpt2_result["scores"]["CommunityRating"] >
-                bert_result["scores"]["CommunityRating"])
+        gpt2_rating = gpt2_result["scores"]["CommunityRating"]
+        bert_rating = bert_result["scores"]["CommunityRating"]
+        assert gpt2_rating > bert_rating
 
     def test_error_handling_in_pipeline(self):
         """Test that the pipeline handles errors gracefully."""
@@ -222,9 +223,9 @@ class TestSystemPerformance:
 
         for i in range(num_metrics):
             metric_name = f"metric_{i}"
-            weight = 1.0/num_metrics
+            weight = 1.0 / num_metrics
             metrics.append(SimpleTestMetric(metric_name, weight=weight))
-            weights[metric_name] = 1.0/num_metrics
+            weights[metric_name] = 1.0 / num_metrics
 
         evaluator = MetricEval(metrics, weights)
         repo_context = {"model_name": "performance-test-model"}

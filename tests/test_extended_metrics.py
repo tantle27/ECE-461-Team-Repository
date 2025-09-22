@@ -185,7 +185,7 @@ class TestBusFactorMetric:
         }
         score = metric.evaluate(repo_context)
         # With equal distribution, concentration is 1/3, score = 1 - 1/3 = 2/3
-        assert abs(score - (2/3)) < 0.01
+        assert abs(score - (2 / 3)) < 0.01
 
     def test_bus_factor_unequal_contributors(self):
         """Test BusFactorMetric with unequal contributor distribution."""
@@ -199,7 +199,7 @@ class TestBusFactorMetric:
         }
         score = metric.evaluate(repo_context)
         # Concentration is 50/60 = 5/6, score = 1 - 5/6 = 1/6
-        assert abs(score - (1/6)) < 0.01
+        assert abs(score - (1 / 6)) < 0.01
 
     def test_bus_factor_weight(self):
         """Test BusFactorMetric weight initialization."""
@@ -390,7 +390,7 @@ class TestCodeQualityMetric:
             'code_complexity': 5.0
         }
         score = self.metric.evaluate(repo_context)
-        expected = 0.3 + 0.8 * 0.3 + 0.2 + (1 - 5.0/20.0) * 0.2  # 0.89
+        expected = 0.3 + 0.8 * 0.3 + 0.2 + (1 - 5.0 / 20.0) * 0.2  # 0.89
         assert abs(score - expected) < 0.01
 
     def test_code_quality_no_features(self):
@@ -413,7 +413,7 @@ class TestCodeQualityMetric:
             'code_complexity': 5.0
         }
         score = self.metric.evaluate(repo_context)
-        expected = 0.3 + (1 - 5.0/20.0) * 0.2  # tests + complexity score
+        expected = 0.3 + (1 - 5.0 / 20.0) * 0.2  # tests + complexity score
         assert abs(score - expected) < 0.01
 
     def test_code_quality_high_coverage(self):
@@ -426,7 +426,7 @@ class TestCodeQualityMetric:
             'code_complexity': 5.0
         }
         score = metric.evaluate(repo_context)
-        expected = 0.3 + 0.9 * 0.3 + 0.2 + (1 - 5.0/20.0) * 0.2
+        expected = 0.3 + 0.9 * 0.3 + 0.2 + (1 - 5.0 / 20.0) * 0.2
         assert abs(score - expected) < 0.01
 
     def test_code_quality_with_linting(self):
@@ -439,7 +439,7 @@ class TestCodeQualityMetric:
             'code_complexity': 10.0
         }
         score = metric.evaluate(repo_context)
-        expected = 0.2 + (1 - 10.0/20.0) * 0.2  # linting + complexity
+        expected = 0.2 + (1 - 10.0 / 20.0) * 0.2  # linting + complexity
         assert abs(score - expected) < 0.01
 
     def test_code_quality_with_llm_content(self):

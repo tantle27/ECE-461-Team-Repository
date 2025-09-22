@@ -41,8 +41,18 @@ class DatasetQualityMetric(BaseMetric):
                   quality indicators including documentation, validation,
                   diversity, and completeness.
         """
-        readme_content = repo_context.get('readme_content', '')
-        metadata = repo_context.get('metadata', {})
+        readme_content = repo_context.get('readme_text', '')
+        
+        # Construct metadata from available sources
+        metadata = {}
+        
+        # Add card_data if available
+        if repo_context.get('card_data'):
+            metadata.update(repo_context.get('card_data', {}))
+        
+        # Add model_index if available
+        if repo_context.get('model_index'):
+            metadata.update(repo_context.get('model_index', {}))
 
         if self.llm_analyzer and readme_content:
             return self.llm_analyzer.analyze_dataset_quality(

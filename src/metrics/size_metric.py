@@ -22,7 +22,7 @@ class SizeMetric(BaseMetric):
 
         Args:
             repo_context (dict): Dictionary containing repository information
-                               including size data.
+                               including files data for size calculation.
 
         Returns:
             float: Score between 0.0 and 1.0 based on device compatibility:
@@ -31,7 +31,17 @@ class SizeMetric(BaseMetric):
                   - 16-512GB: 0.5 to 0.0 (cloud only)
                   - >512GB: 0.0 (impractical)
         """
-        size_gb = repo_context.get('size', 0) / (1024**3)
+        # Calculate size from files or use total_weight_bytes if available
+        if repo_context.get('total_weight_bytes') is not None:
+            size_bytes = repo_context.get('total_weight_bytes', 0)
+        else:
+            # Sum up file sizes from files list
+            files = repo_context.get('files', [])
+            size_bytes = 0
+            if files:
+                size_bytes = sum(f.get('size_bytes', 0) for f in files)
+        
+        size_gb = size_bytes / (1024**3)
 
         if size_gb < 2:
             return 1.0
