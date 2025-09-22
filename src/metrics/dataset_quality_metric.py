@@ -1,33 +1,58 @@
 """
-Dataset Quality Metric for evaluating dataset quality and diversity.
+Dataset Quality Metric for evaluating dataset quality using LLM analysis.
 """
 
 from .base_metric import BaseMetric
+import os
+import sys
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+
+try:
+    from utils.llm_analyzer import LLMAnalyzer
+except ImportError:
+    LLMAnalyzer = None
 
 
 class DatasetQualityMetric(BaseMetric):
     """
-    Metric to evaluate the quality and diversity of datasets used in
-    training or fine-tuning AI/ML models.
+    Metric to evaluate dataset quality using LLM analysis.
 
-    This metric considers data validation, diversity, and completeness.
+    Uses LLM to analyze documentation and metadata to assess dataset quality,
+    diversity, completeness, and overall suitability for AI/ML training.
     """
 
     def __init__(self, weight: float = 0.15):
         super().__init__(name="DatasetQuality", weight=weight)
+        self.llm_analyzer = LLMAnalyzer() if LLMAnalyzer else None
 
     def evaluate(self, repo_context: dict) -> float:
         """
-        Evaluate the dataset quality for a given model repository.
+        Evaluate dataset quality using LLM analysis of documentation.
 
         Args:
             repo_context (dict): Dictionary containing repository information
-                               including dataset quality metrics.
+                               including README content and metadata.
 
         Returns:
-            float: Score between 0.0 and 1.0, where 1.0 indicates excellent
-                  dataset quality and 0.0 indicates poor quality.
+            float: Score between 0.0 and 1.0 from LLM analysis of dataset
+                  quality indicators including documentation, validation,
+                  diversity, and completeness.
         """
+        readme_content = repo_context.get('readme_content', '')
+        metadata = repo_context.get('metadata', {})
+
+        if self.llm_analyzer and readme_content:
+            return self.llm_analyzer.analyze_dataset_quality(
+                readme_content, metadata)
+
+        # Fallback to basic analysis if LLM unavailable
+        return self._fallback_analysis(repo_context)
+
+    def _fallback_analysis(self, repo_context: dict) -> float:
+        """Fallback analysis when LLM is unavailable."""
         has_validation = repo_context.get('has_data_validation', False)
         data_diversity = repo_context.get('data_diversity_score', 0.0)
         data_completeness = repo_context.get('data_completeness', 0.0)
@@ -44,4 +69,4 @@ class DatasetQualityMetric(BaseMetric):
 
     def get_description(self) -> str:
         """Get description of the metric."""
-        return "Evaluates quality and diversity of training datasets"
+        return "Evaluates dataset quality using LLM analysis"

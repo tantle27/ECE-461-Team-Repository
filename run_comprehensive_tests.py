@@ -60,7 +60,7 @@ def main():
     # Test categories following the validation plan format
     test_categories = [
         ("CLI Layer Tests", [
-            "tests/test_cli_app.py",
+            "tests/test_cli_layer.py",
             "tests/test_run_install.py",
             "tests/test_run_test.py"
         ]),
@@ -71,7 +71,7 @@ def main():
             "tests/test_url_handlers.py"
         ]),
         ("RepoContext Tests", [
-            "tests/test_repo_context_class.py"
+            "tests/test_repo_context.py"
         ]),
         ("Core Metrics Tests", [
             "tests/test_base_metric.py",

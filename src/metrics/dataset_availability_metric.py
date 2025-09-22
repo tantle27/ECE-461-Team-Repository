@@ -19,33 +19,54 @@ class DatasetAvailabilityMetric(BaseMetric):
 
     def evaluate(self, repo_context: dict) -> float:
         """
-        Evaluate the dataset availability for a given model repository.
+        Evaluate dataset availability and code documentation (ADACS).
 
         Args:
             repo_context (dict): Dictionary containing repository information
-                               including dataset information.
+                               including dataset and training documentation.
 
         Returns:
-            float: Score between 0.0 and 1.0, where 1.0 indicates all datasets
-                  are publicly available and properly cited, and 0.0 indicates
-                  none are available.
+            float: Score based on availability and documentation:
+                  - 0.0: No dataset available
+                  - 0.33: Dataset available
+                  - 0.67: Dataset available + well documented OR
+                          training documented
+                  - 1.0: Dataset available + well documented AND
+                         training documented
         """
         has_dataset = repo_context.get('has_dataset', False)
-        dataset_accessible = repo_context.get('dataset_accessible', False)
-        dataset_size = repo_context.get('dataset_size', 0)
-
+        dataset_documented = repo_context.get('dataset_documented', False)
+        training_documented = repo_context.get('training_documented', False)
+        
+        # Check README for dataset/training documentation
+        readme_content = repo_context.get('readme_content', '').lower()
+        
+        # Analyze README for dataset documentation
+        dataset_indicators = ['dataset', 'data', 'training data', 'corpus']
+        has_dataset_in_readme = any(indicator in readme_content
+                                    for indicator in dataset_indicators)
+        
+        # Analyze README for training documentation
+        training_indicators = ['training', 'fine-tuning', 'model training',
+                               'train', 'training procedure', 'training setup']
+        has_training_in_readme = any(indicator in readme_content
+                                     for indicator in training_indicators)
+        
+        # Combine explicit flags with README analysis
+        dataset_well_documented = (dataset_documented or
+                                   has_dataset_in_readme)
+        training_well_documented = (training_documented or
+                                    has_training_in_readme)
+        
         if not has_dataset:
             return 0.0
-
-        score = 0.5  # Base score for having dataset
-
-        if dataset_accessible:
-            score += 0.3
-
-        if dataset_size > 1000:  # Substantial dataset
-            score += 0.2
-
-        return min(1.0, score)
+        
+        if dataset_well_documented and training_well_documented:
+            return 1.0  # Both documented
+        elif dataset_well_documented or training_well_documented:
+            return 0.67  # One documented
+        else:
+            return 0.33  # Available but not documented
 
     def get_description(self) -> str:
         """Get description of the metric."""
