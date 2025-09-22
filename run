@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 #!/bin/bash
+=======
+#!/usr/bin/bash
+>>>>>>> 758b31f7bc2741ef8b5d2837f23d1c110c7701bb
 
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 {install|test|URL_FILE}"
@@ -19,4 +23,8 @@ elif [ "$1" = "test" ]; then
 else
   python3 src/app.py $1
   exit 0
+<<<<<<< HEAD
 fi
+=======
+fi
+>>>>>>> 758b31f7bc2741ef8b5d2837f23d1c110c7701bb
