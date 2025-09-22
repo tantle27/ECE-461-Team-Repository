@@ -91,18 +91,18 @@ class TestIntegrationMetricsSystem:
         models = [
             {
                 "model_name": "bert-base",
-                "hf_likes": 50,
-                "hf_downloads": 2000
+                "likes": 50,
+                "downloads_all_time": 2000
             },
             {
                 "model_name": "gpt-2-large",
-                "hf_likes": 150,
-                "hf_downloads": 5000
+                "likes": 150,
+                "downloads_all_time": 5000
             },
             {
                 "model_name": "t5",
-                "hf_likes": 25,
-                "hf_downloads": 500
+                "likes": 25,
+                "downloads_all_time": 500
             }
         ]
 
@@ -158,8 +158,8 @@ class TestIntegrationMetricsSystem:
         evaluator = MetricEval(metrics, weights)
 
         repo_context = {
-            "hf_likes": 100,
-            "hf_downloads": 5000
+            "likes": 100,
+            "downloads_all_time": 5000
         }
 
         # Run evaluation (should not crash)
