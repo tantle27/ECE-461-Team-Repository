@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import os
 import random
+import re
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
 
 # ---------------- data models ----------------
 
@@ -31,8 +33,9 @@ DEFAULT_TIMEOUT = 30  # seconds
 class _TimeoutHTTPAdapter(HTTPAdapter):
     """HTTPAdapter that applies a default timeout and retry policy."""
 
-    def __init__(self, *args, timeout: int = DEFAULT_TIMEOUT,
-                 **kwargs) -> None:
+    def __init__(
+        self, *args, timeout: int = DEFAULT_TIMEOUT, **kwargs
+    ) -> None:
         self._timeout = timeout
         super().__init__(*args, **kwargs)
 
@@ -52,6 +55,24 @@ def _retry_policy() -> Retry:
         allowed_methods=frozenset({"GET"}),
         raise_on_status=False,
     )
+
+
+_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([-.\w]+)/([-.\w]+)", re.I)
+
+
+def normalize_and_verify_github(
+    gh: GHClient, urls: Iterable[str]
+) -> list[str]:
+    valid: list[str] = []
+    for u in urls:
+        m = _GITHUB_REPO_RE.match(u or "")
+        if not m:
+            continue
+        owner, repo = m.group(1), m.group(2)
+        info = gh.get_repo(owner, repo)
+        if info is not None:
+            valid.append(f"https://github.com/{owner}/{repo}")
+    return list(dict.fromkeys(valid))
 
 
 def _make_session(token: Optional[str]) -> requests.Session:
@@ -80,11 +101,13 @@ def _make_session(token: Optional[str]) -> requests.Session:
 
 def _sleep_until_reset(resp: requests.Response) -> None:
     remaining, reset = resp.headers.get(
-        "X-RateLimit-Remaining"), resp.headers.get("X-RateLimit-Reset")
+        "X-RateLimit-Remaining"
+    ), resp.headers.get("X-RateLimit-Reset")
     if remaining == "0" and reset is not None:
         try:
-            delay = max(0, int(reset) - int(
-                time.time())) + random.uniform(0.25, 0.75)
+            delay = max(0, int(reset) - int(time.time())) + random.uniform(
+                0.25, 0.75
+            )
             time.sleep(min(delay, 60.0))  # cap long sleeps
             return
         except ValueError:
@@ -156,8 +179,9 @@ class GHClient:
 
     # -------- internals --------
 
-    def _github_get(self, url: str, *, use_etag: bool
-                    = True) -> requests.Response:
+    def _github_get(
+        self, url: str, *, use_etag: bool = True
+    ) -> requests.Response:
         headers: dict[str, str] = {}
         if use_etag:
             etag = self._etag_cache.get(_etag_key(url))

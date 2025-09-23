@@ -32,7 +32,6 @@ class BaseMetric(ABC):
         Returns:
             float: Score between 0.0 and 1.0, where 1.0 is the best score
         """
-        pass
 
     def __str__(self) -> str:
         """String representation of the metric."""

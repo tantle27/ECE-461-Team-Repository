@@ -17,9 +17,13 @@ class NetScorer:
     in NDJSON format for standardized reporting.
     """
 
-    def __init__(self, scores: Dict[str, float], weights: Dict[str, float],
-                 url: Optional[str] = None,
-                 latencies: Optional[Dict[str, float]] = None):
+    def __init__(
+        self,
+        scores: Dict[str, float],
+        weights: Dict[str, float],
+        url: Optional[str] = None,
+        latencies: Optional[Dict[str, float]] = None,
+    ):
         """
         Initialize NetScorer with scores and weights.
 
@@ -75,7 +79,7 @@ class NetScorer:
         result = {
             "URL": self.url,
             "NetScore": round(net_score, 2),
-            "NetScore_Latency": self.latencies.get("NetScore", 0.0)
+            "NetScore_Latency": self.latencies.get("NetScore", 0.0),
         }
 
         # Add individual metric scores and latencies
@@ -98,10 +102,14 @@ class NetScorer:
     def __str__(self) -> str:
         """String representation of NetScorer."""
         net_score = self.compute_net_score()
-        return (f"NetScorer(net_score={net_score:.2f}, "
-                f"metrics={len(self.scores)})")
+        return (
+            f"NetScorer(net_score={net_score:.2f}, "
+            f"metrics={len(self.scores)})"
+        )
 
     def __repr__(self) -> str:
         """Detailed string representation of NetScorer."""
-        return (f"NetScorer(scores={self.scores}, weights={self.weights}, "
-                f"url='{self.url}', latencies={self.latencies})")
+        return (
+            f"NetScorer(scores={self.scores}, weights={self.weights}, "
+            f"url='{self.url}', latencies={self.latencies})"
+        )

@@ -22,18 +22,32 @@ class SizeMetric(BaseMetric):
 
         Args:
             repo_context (dict): Dictionary containing repository information
-                               including size data.
+                               including files data for size calculation.
 
         Returns:
-            float: Score between 0.0 and 1.0, where 1.0 indicates optimal size
-                  (≤2GB) and 0.0 indicates very large size (>16GB).
+            float: Score between 0.0 and 1.0 based on device compatibility:
+                  - <2GB: 1.0 (fits all devices)
+                  - 2-16GB: 1.0 to 0.5 (PC compatible)
+                  - 16-512GB: 0.5 to 0.0 (cloud only)
+                  - >512GB: 0.0 (impractical)
         """
-        size_gb = repo_context.get('size', 0) / (1024**3)
+        # Calculate size from files or use total_weight_bytes if available
+        if repo_context.get("total_weight_bytes") is not None:
+            size_bytes = repo_context.get("total_weight_bytes", 0)
+        else:
+            # Sum up file sizes from files list
+            files = repo_context.get("files", [])
+            size_bytes = 0
+            if files:
+                size_bytes = sum(f.size_bytes for f in files)
 
-        if size_gb <= 2:
+        size_gb = size_bytes / (1000**3)
+        if size_gb < 2:
             return 1.0
         elif size_gb <= 16:
-            return max(0, 1 - (size_gb - 2) / 14)
+            return 1.0 - 0.5 * ((size_gb - 2) / 14)
+        elif size_gb <= 512:
+            return 0.5 - 0.5 * ((size_gb - 16) / 496)
         else:
             return 0.0
 

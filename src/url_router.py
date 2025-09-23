@@ -9,6 +9,7 @@ class UrlType(Enum):
     High-level categories used to route URLs to handlers and decide output
     behavior.
     """
+
     MODEL = auto()
     DATASET = auto()
     CODE = auto()
@@ -27,6 +28,7 @@ class ParsedUrl:
             applicable.
         gh_owner_repo: ('owner', 'repo') for GitHub URLs, if applicable.
     """
+
     raw: str
     type: UrlType
     hf_id: Optional[str] = None
@@ -45,10 +47,7 @@ class UrlRouter:
     )
 
     _HF_MODEL_RE = re.compile(
-        (
-            r"^https?://huggingface\.co/"
-            r"(?P<id>[^/\s?#]+(?:/[^/\s?#]+)?)"
-        ),
+        (r"^https?://huggingface\.co/" r"(?P<id>[^/\s?#]+(?:/[^/\s?#]+)?)"),
         re.IGNORECASE,
     )
 
