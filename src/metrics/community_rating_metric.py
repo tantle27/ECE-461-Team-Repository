@@ -41,8 +41,8 @@ class CommunityRatingMetric(BaseMetric):
         if not repo_context:
             return 0.0
 
-        likes = repo_context.get('likes', 0) or 0
-        downloads = repo_context.get('downloads_all_time', 0) or 0
+        likes = repo_context.get("likes", 0) or 0
+        downloads = repo_context.get("downloads_all_time", 0) or 0
 
         # Handle negative values
         if likes < 0 or downloads < 0:
@@ -89,5 +89,7 @@ class CommunityRatingMetric(BaseMetric):
         Returns:
             str: Description of the metric
         """
-        return ("Evaluates community engagement through likes/stars and "
-                "download counts using logarithmic scaling")
+        return (
+            "Evaluates community engagement through likes/stars and "
+            "download counts using logarithmic scaling"
+        )

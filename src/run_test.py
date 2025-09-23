@@ -2,12 +2,12 @@
 Test runner with pytest integration and coverage reporting.
 """
 
-import subprocess
-import sys
 import json
 import os
-from typing import Dict, List, Optional
+import subprocess
+import sys
 from pathlib import Path
+from typing import Dict, List, Optional
 
 
 class TestExecutionResult:
@@ -17,10 +17,17 @@ class TestExecutionResult:
     Note: Renamed from TestResult to avoid pytest collection warnings.
     """
 
-    def __init__(self, exit_code: int, tests_run: int, tests_passed: int,
-                 tests_failed: int, coverage_percentage: float,
-                 coverage_report: Dict[str, float], execution_time: float,
-                 ndjson_output: str):
+    def __init__(
+        self,
+        exit_code: int,
+        tests_run: int,
+        tests_passed: int,
+        tests_failed: int,
+        coverage_percentage: float,
+        coverage_report: Dict[str, float],
+        execution_time: float,
+        ndjson_output: str,
+    ):
         self.exit_code = exit_code
         self.tests_run = tests_run
         self.tests_passed = tests_passed
@@ -46,9 +53,8 @@ class RunTest:
         self.tests_dir = self.project_root / "tests"
 
     def run_tests_with_coverage(
-            self,
-            test_pattern: Optional[str] = None,
-            min_coverage: float = 10.0) -> TestExecutionResult:
+        self, test_pattern: Optional[str] = None, min_coverage: float = 10.0
+    ) -> TestExecutionResult:
         """Run pytest with coverage reporting.
 
         Args:
@@ -60,7 +66,9 @@ class RunTest:
         """
         # Build pytest command
         cmd = [
-            sys.executable, "-m", "pytest",
+            sys.executable,
+            "-m",
+            "pytest",
             "--cov=src",  # Coverage for src directory
             "--cov-report=json",  # JSON coverage output
             "--cov-report=term-missing",  # Terminal coverage report
@@ -84,7 +92,7 @@ class RunTest:
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=300,  # 5 minute timeout
             )
 
             # Parse coverage report
@@ -100,14 +108,15 @@ class RunTest:
 
             return TestExecutionResult(
                 exit_code=result.returncode,
-                tests_run=test_stats.get('total', 0),
-                tests_passed=test_stats.get('passed', 0),
-                tests_failed=test_stats.get('failed', 0),
-                coverage_percentage=coverage_data.get('totals', {}).get(
-                    'percent_covered', 0.0),
+                tests_run=test_stats.get("total", 0),
+                tests_passed=test_stats.get("passed", 0),
+                tests_failed=test_stats.get("failed", 0),
+                coverage_percentage=coverage_data.get("totals", {}).get(
+                    "percent_covered", 0.0
+                ),
                 coverage_report=self._extract_file_coverage(coverage_data),
-                execution_time=test_stats.get('duration', 0.0),
-                ndjson_output=ndjson_output
+                execution_time=test_stats.get("duration", 0.0),
+                ndjson_output=ndjson_output,
             )
 
         except subprocess.TimeoutExpired:
@@ -120,7 +129,8 @@ class RunTest:
                 coverage_report={},
                 execution_time=300.0,
                 ndjson_output=self._generate_error_ndjson(
-                    "Test execution timeout")
+                    "Test execution timeout"
+                ),
             )
         except Exception as e:
             return TestExecutionResult(
@@ -131,7 +141,7 @@ class RunTest:
                 coverage_percentage=0.0,
                 coverage_report={},
                 execution_time=0.0,
-                ndjson_output=self._generate_error_ndjson(str(e))
+                ndjson_output=self._generate_error_ndjson(str(e)),
             )
 
     def _parse_coverage_report(self) -> Dict:
@@ -141,36 +151,36 @@ class RunTest:
             return {}
 
         try:
-            with open(coverage_file, 'r') as f:
+            with open(coverage_file, "r") as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             return {}
 
     def _parse_test_output(self, output: str) -> Dict[str, int]:
         """Parse pytest output to extract test statistics."""
-        stats = {'total': 0, 'passed': 0, 'failed': 0, 'duration': 0.0}
+        stats = {"total": 0, "passed": 0, "failed": 0, "duration": 0.0}
 
-        lines = output.split('\n')
+        lines = output.split("\n")
         for line in lines:
             # Look for summary line like "169 passed, 1 warning in 0.53s"
-            if 'passed' in line and 'in' in line and 's' in line:
+            if "passed" in line and "in" in line and "s" in line:
                 parts = line.split()
                 for i, part in enumerate(parts):
-                    if part.startswith('passed') and i > 0:
+                    if part.startswith("passed") and i > 0:
                         try:
-                            stats['passed'] = int(parts[i - 1])
-                            stats['total'] += stats['passed']
+                            stats["passed"] = int(parts[i - 1])
+                            stats["total"] += stats["passed"]
                         except (ValueError, IndexError):
                             pass
-                    elif part.startswith('failed') and i > 0:
+                    elif part.startswith("failed") and i > 0:
                         try:
-                            stats['failed'] = int(parts[i - 1])
-                            stats['total'] += stats['failed']
+                            stats["failed"] = int(parts[i - 1])
+                            stats["total"] += stats["failed"]
                         except (ValueError, IndexError):
                             pass
-                    elif part.endswith('s') and 'in' in parts[i - 1:i + 1]:
+                    elif part.endswith("s") and "in" in parts[i - 1: i + 1]:
                         try:
-                            stats['duration'] = float(part[:-1])
+                            stats["duration"] = float(part[:-1])
                         except ValueError:
                             pass
                 break
@@ -181,10 +191,10 @@ class RunTest:
         """Extract per-file coverage percentages."""
         file_coverage = {}
 
-        files = coverage_data.get('files', {})
+        files = coverage_data.get("files", {})
         for filepath, file_data in files.items():
-            summary = file_data.get('summary', {})
-            percent_covered = summary.get('percent_covered', 0.0)
+            summary = file_data.get("summary", {})
+            percent_covered = summary.get("percent_covered", 0.0)
 
             # Convert absolute path to relative path from src
             if filepath.startswith(str(self.src_dir)):
@@ -195,28 +205,29 @@ class RunTest:
 
         return file_coverage
 
-    def _generate_ndjson_output(self, test_stats: Dict,
-                                coverage_data: Dict, exit_code: int) -> str:
+    def _generate_ndjson_output(
+        self, test_stats: Dict, coverage_data: Dict, exit_code: int
+    ) -> str:
         """Generate NDJSON formatted test results."""
-        totals = coverage_data.get('totals', {})
+        totals = coverage_data.get("totals", {})
         result = {
             "test_execution": {
                 "status": "success" if exit_code == 0 else "failure",
                 "exit_code": exit_code,
-                "tests_run": test_stats.get('total', 0),
-                "tests_passed": test_stats.get('passed', 0),
-                "tests_failed": test_stats.get('failed', 0),
-                "execution_time": test_stats.get('duration', 0.0)
+                "tests_run": test_stats.get("total", 0),
+                "tests_passed": test_stats.get("passed", 0),
+                "tests_failed": test_stats.get("failed", 0),
+                "execution_time": test_stats.get("duration", 0.0),
             },
             "coverage": {
-                "overall_percentage": totals.get('percent_covered', 0.0),
-                "files_covered": len(coverage_data.get('files', {})),
-                "lines_covered": totals.get('covered_lines', 0),
-                "lines_total": totals.get('num_statements', 0)
-            }
+                "overall_percentage": totals.get("percent_covered", 0.0),
+                "files_covered": len(coverage_data.get("files", {})),
+                "lines_covered": totals.get("covered_lines", 0),
+                "lines_total": totals.get("num_statements", 0),
+            },
         }
 
-        return json.dumps(result, separators=(',', ':'))
+        return json.dumps(result, separators=(",", ":"))
 
     def _generate_error_ndjson(self, error_message: str) -> str:
         """Generate NDJSON for error conditions."""
@@ -228,17 +239,17 @@ class RunTest:
                 "tests_run": 0,
                 "tests_passed": 0,
                 "tests_failed": 0,
-                "execution_time": 0.0
+                "execution_time": 0.0,
             },
             "coverage": {
                 "overall_percentage": 0.0,
                 "files_covered": 0,
                 "lines_covered": 0,
-                "lines_total": 0
-            }
+                "lines_total": 0,
+            },
         }
 
-        return json.dumps(result, separators=(',', ':'))
+        return json.dumps(result, separators=(",", ":"))
 
     def run_specific_tests(self, test_files: List[str]) -> TestExecutionResult:
         """Run specific test files with coverage."""
@@ -254,11 +265,13 @@ class RunTest:
     def generate_html_coverage_report(self) -> bool:
         """Generate HTML coverage report."""
         cmd = [
-            sys.executable, "-m", "pytest",
+            sys.executable,
+            "-m",
+            "pytest",
             "--cov=src",
             "--cov-report=html:htmlcov",
             "--tb=no",  # No traceback for report generation
-            str(self.tests_dir)
+            str(self.tests_dir),
         ]
 
         try:
@@ -267,7 +280,7 @@ class RunTest:
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=120,
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, Exception):
@@ -279,14 +292,21 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Run tests with coverage reporting")
+        description="Run tests with coverage reporting"
+    )
     parser.add_argument("--pattern", help="Test pattern to run")
-    parser.add_argument("--min-coverage", type=float, default=80.0,
-                        help="Minimum coverage percentage")
-    parser.add_argument("--html", action="store_true",
-                        help="Generate HTML coverage report")
-    parser.add_argument("--markers", nargs="+",
-                        help="Run tests with specific markers")
+    parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=80.0,
+        help="Minimum coverage percentage",
+    )
+    parser.add_argument(
+        "--html", action="store_true", help="Generate HTML coverage report"
+    )
+    parser.add_argument(
+        "--markers", nargs="+", help="Run tests with specific markers"
+    )
 
     args = parser.parse_args()
 
@@ -306,7 +326,8 @@ def main():
         result = runner.run_with_markers(args.markers)
     else:
         result = runner.run_tests_with_coverage(
-            args.pattern, args.min_coverage)
+            args.pattern, args.min_coverage
+        )
 
     # Print results
     print("\nTest Results:")

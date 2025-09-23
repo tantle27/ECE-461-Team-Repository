@@ -32,24 +32,21 @@ class SizeMetric(BaseMetric):
                   - >512GB: 0.0 (impractical)
         """
         # Calculate size from files or use total_weight_bytes if available
-        if repo_context.get('total_weight_bytes') is not None:
-            size_bytes = repo_context.get('total_weight_bytes', 0)
+        if repo_context.get("total_weight_bytes") is not None:
+            size_bytes = repo_context.get("total_weight_bytes", 0)
         else:
             # Sum up file sizes from files list
-            files = repo_context.get('files', [])
+            files = repo_context.get("files", [])
             size_bytes = 0
             if files:
-                size_bytes = sum(f.get('size_bytes', 0) for f in files)
-        
-        size_gb = size_bytes / (1024**3)
+                size_bytes = sum(f.size_bytes for f in files)
 
+        size_gb = size_bytes / (1000**3)
         if size_gb < 2:
             return 1.0
         elif size_gb <= 16:
-            # Formula: 1 - 0.5((s-2)/14)
             return 1.0 - 0.5 * ((size_gb - 2) / 14)
         elif size_gb <= 512:
-            # Formula: 0.5 - 0.5((s-16)/496)
             return 0.5 - 0.5 * ((size_gb - 16) / 496)
         else:
             return 0.0
