@@ -1,15 +1,11 @@
 import json
-import os
 import re
 import time
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
+from collections.abc import Mapping
 
 import requests
-from huggingface_hub import HfApi
-from huggingface_hub.utils import (GatedRepoError, HfHubHTTPError,
-                                   RepositoryNotFoundError)
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -24,30 +20,38 @@ class _TimeoutHTTPAdapter(HTTPAdapter):
         return super().send(request, **kwargs)
 
 
-def _create_session(token: Optional[str]) -> requests.Session:
-    session = requests.Session()
-    retry_policy = Retry(
+def _session() -> requests.Session:
+    s = requests.Session()
+    retry = Retry(
         total=5,
         connect=5,
         read=5,
         backoff_factor=0.4,
         status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset(["GET"]),
+        allowed_methods=frozenset({"GET"}),
         raise_on_status=False,
     )
-    adapter = _TimeoutHTTPAdapter(max_retries=retry_policy, timeout=30)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-
-    headers = {
+    adapter = _TimeoutHTTPAdapter(max_retries=retry, timeout=30)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    s.headers.update({
         "Accept": "application/json, text/plain, */*",
         "User-Agent": "acme-model-evaluator/0.1 (+requests)",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    session.headers.update(headers)
-    return session
+    })
+    return s
 
+
+def _retry(fn, attempts: int = 4):
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception:
+            if i == attempts - 1:
+                raise
+            time.sleep(0.4 * (2 ** i))
+
+
+# ---------------- Data models ----------------
 
 @dataclass
 class HFModelInfo:
@@ -69,436 +73,313 @@ class HFFileInfo:
     size: int | None
 
 
-def _normalize_card_data(card_obj: Any) -> Dict[str, Any]:
-    """Convert ModelCardData to dict, handling various hub versions."""
-    if card_obj is None:
+# ---------------- Helpers ----------------
+
+def _normalize_card_data(x: Any) -> Dict[str, Any]:
+    if x is None:
         return {}
     try:
-        if hasattr(card_obj, "to_dict") and callable(card_obj.to_dict):
-            return dict(card_obj.to_dict())
-        if hasattr(card_obj, "data") and isinstance(card_obj.data, Mapping):
-            return dict(card_obj.data)
-        if isinstance(card_obj, Mapping):
-            return dict(card_obj)
-        for method in ("model_dump", "dict", "json"):
-            if hasattr(card_obj, method):
-                result = getattr(card_obj, method)()
-                return json.loads(result) if method == "json" else dict(result)
+        if hasattr(x, "to_dict") and callable(x.to_dict):  # type: ignore
+            return dict(x.to_dict())  # type: ignore[attr-defined]
+        if hasattr(x, "data") and isinstance(x.data, Mapping):  # type: ignore
+            return dict(x.data)  # type: ignore[attr-defined]
+        if isinstance(x, Mapping):
+            return dict(x)
+        for m in ("model_dump", "dict", "json"):
+            if hasattr(x, m):
+                v = getattr(x, m)()
+                return json.loads(v) if m == "json" else dict(v)
     except Exception:
         pass
     return {}
 
 
-def _retry(operation, attempts: int = 4):
-    for i in range(attempts):
-        try:
-            return operation()
-        except Exception as e:
-            if i == attempts - 1:
-                raise e
-            time.sleep(0.4 * (2**i))
-    return None
-
-
-# ----------------- GitHub URL matching (unchanged) -----------------
-
+# ---------------- GitHub URL extraction ----------------
 
 class GitHubMatcher:
-    GITHUB_PATTERN = re.compile(r"https?://github\.com/[^\s)\"'<>]+", re.I)
-    ROOT_PATTERN = re.compile(r"^(https?://github\.com/[-\w.]+/[-\w.]+)", re.I)
-    VERSION_PATTERN = re.compile(
-        r"(?:^|[^a-z0-9])v?(\d+(?:\.\d+)*)(?:[^a-z0-9]|$)", re.I
-    )
-    GENERIC_NAMES = {
-        "transformers",
-        "diffusers",
-        "datasets",
-        "examples",
-        "tutorials",
-        "notebooks",
-        "benchmarks",
-        "models",
-        "scripts",
-        "awesome",
-        "research",
+    GITHUB = re.compile(r"https?://github\.com/[^\s)\"'<>]+", re.I)
+    ROOT = re.compile(r"^(https?://github\.com/[-\w.]+/[-\w.]+)", re.I)
+    VER = re.compile(r"(?:^|[^a-z0-9])v?(\d+(?:\.\d+)*)(?:[^a-z0-9]|$)", re.I)
+    GENERIC = {
+        "transformers", "diffusers", "datasets", "examples", "tutorials",
+        "notebooks", "benchmarks", "models", "scripts", "awesome", "research",
     }
 
     @staticmethod
-    def _normalize(name: str) -> str:
-        name = (name or "").lower()
-        for prefix in ("hf-", "huggingface-", "the-"):
-            if name.startswith(prefix):
-                name = name[len(prefix):]
-        for suffix in (
-            "-dev",
-            "-devkit",
-            "-main",
-            "-release",
-            "-project",
-            "-repo",
-            "-code",
-        ):
-            if name.endswith(suffix):
-                name = name[: -len(suffix)]
-        return re.sub(r"[^a-z0-9]+", "-", name).strip("-")
+    def _norm(s: str) -> str:
+        s = (s or "").lower()
+        for pre in ("hf-", "huggingface-", "the-"):
+            if s.startswith(pre):
+                s = s[len(pre):]
+        for suf in ("-dev", "-devkit", "-main", "-release",
+                    "-project", "-repo", "-code"):
+            if s.endswith(suf):
+                s = s[: -len(suf)]
+        return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
 
     @staticmethod
-    def _tokenize(text: str) -> Set[str]:
-        return {
-            t
-            for t in re.split(r"[^a-z0-9]+", GitHubMatcher._normalize(text))
-            if len(t) >= 3
-        }
+    def _tokens(s: str) -> Set[str]:
+        return {t for t in re.split(r"[^a-z0-9]+", GitHubMatcher._norm(s))
+                if len(t) >= 3}
 
     @staticmethod
-    def _get_aliases(hf_id: str, card_data: Dict | None) -> Set[str]:
-        aliases = set()
-        clean_id = hf_id.replace("datasets/", "") if hf_id else ""
-
-        if "/" in clean_id:
-            org, name = clean_id.split("/", 1)
-            aliases.update(
-                {GitHubMatcher._normalize(name), GitHubMatcher._normalize(org)}
-            )
+    def _aliases(hf_id: str, card: Dict | None) -> Set[str]:
+        out: Set[str] = set()
+        clean = hf_id.replace("datasets/", "") if hf_id else ""
+        if "/" in clean:
+            org, name = clean.split("/", 1)
+            out.update({GitHubMatcher._norm(name), GitHubMatcher._norm(org)})
         else:
-            aliases.add(GitHubMatcher._normalize(clean_id))
-
-        if card_data:
-            model_index = card_data.get("model-index")
-            if (
-                isinstance(model_index, list)
-                and model_index
-                and isinstance(model_index[0], dict)
-            ):
-                name = model_index[0].get("name")
-                if isinstance(name, str):
-                    aliases.add(GitHubMatcher._normalize(name))
-
-            for field in ("model_name", "name", "title"):
-                value = card_data.get(field)
-                if isinstance(value, str):
-                    aliases.add(GitHubMatcher._normalize(value))
-
-        return {a for a in aliases if a}
+            out.add(GitHubMatcher._norm(clean))
+        if card:
+            mi = card.get("model-index")
+            if isinstance(mi, list) and mi and isinstance(mi[0], dict):
+                nm = mi[0].get("name")
+                if isinstance(nm, str):
+                    out.add(GitHubMatcher._norm(nm))
+            for k in ("model_name", "name", "title"):
+                v = card.get(k)
+                if isinstance(v, str):
+                    out.add(GitHubMatcher._norm(v))
+        return {a for a in out if a}
 
     @staticmethod
-    def _jaccard_similarity(set_a: Set[str], set_b: Set[str]) -> float:
-        if not set_a or not set_b:
+    def _jac(a: Set[str], b: Set[str]) -> float:
+        if not a or not b:
             return 0.0
-        intersection = len(set_a & set_b)
-        return intersection / len(set_a | set_b) if intersection > 0 else 0.0
+        inter = len(a & b)
+        return inter / len(a | b) if inter else 0.0
 
     @staticmethod
-    def _version_bonus(hf_id: str, repo_name: str) -> float:
-        hf_versions = [
-            tuple(int(x) for x in m.group(1).split("."))
-            for m in GitHubMatcher.VERSION_PATTERN.finditer(hf_id or "")
-        ]
-        repo_versions = [
-            tuple(int(x) for x in m.group(1).split("."))
-            for m in GitHubMatcher.VERSION_PATTERN.finditer(repo_name or "")
-        ]
-        if not hf_versions or not repo_versions:
+    def _ver_bonus(hf_id: str, repo: str) -> float:
+        hv = [tuple(map(int, m.group(1).split(".")))
+              for m in GitHubMatcher.VER.finditer(hf_id or "")]
+        rv = [tuple(map(int, m.group(1).split(".")))
+              for m in GitHubMatcher.VER.finditer(repo or "")]
+        if not hv or not rv:
             return 0.0
-        return max(
-            1.0 if hv == rv else 0.9
-            for hv in hf_versions
-            for rv in repo_versions
-        )
+        return max(1.0 if x == y else 0.9 for x in hv for y in rv)
 
     @classmethod
-    def extract_urls(
-        cls, hf_id: str, readme: str, card_data: Dict | None = None
-    ) -> List[str]:
+    def extract_urls(cls,
+                     hf_id: str,
+                     readme: str,
+                     card: Dict | None = None) -> List[str]:
         if not readme:
             return []
+        aliases = cls._aliases(hf_id, card)
+        hf_org = (hf_id.replace("datasets/", "").split("/", 1)[0].lower()
+                  if "/" in hf_id else "")
+        cands: List[tuple[float, str, str]] = []
+        seen: set[str] = set()
 
-        aliases = cls._get_aliases(hf_id, card_data)
-        hf_org = (
-            hf_id.replace("datasets/", "").split("/", 1)[0].lower()
-            if "/" in hf_id
-            else ""
-        )
-
-        candidates = []
-        seen = set()
-
-        for match in cls.GITHUB_PATTERN.finditer(readme):
-            root_match = cls.ROOT_PATTERN.match(match.group(0))
-            if not root_match:
+        for m in cls.GITHUB.finditer(readme):
+            root = cls.ROOT.match(m.group(0))
+            if not root:
                 continue
-
-            repo_url = root_match.group(1)
+            repo_url = root.group(1)
             if repo_url in seen:
                 continue
             seen.add(repo_url)
-
-            owner, repo_name = repo_url.rsplit("/", 2)[-2:]
-            if repo_name.lower() in cls.GENERIC_NAMES:
+            owner, repo = repo_url.rsplit("/", 2)[-2:]
+            if repo.lower() in cls.GENERIC:
                 continue
-
-            repo_tokens = cls._tokenize(repo_name)
-            similarity = max(
-                (
-                    cls._jaccard_similarity(cls._tokenize(alias), repo_tokens)
-                    for alias in aliases
-                ),
-                default=0.0,
-            )
-            similarity += cls._version_bonus(hf_id, repo_name)
-
+            toks = cls._tokens(repo)
+            sim = max((cls._jac(cls._tokens(a), toks) for a in aliases),
+                      default=0.0)
+            sim += cls._ver_bonus(hf_id, repo)
             if hf_org and (hf_org in owner.lower() or owner.lower() in hf_org):
-                similarity += 0.05
+                sim += 0.05
+            cands.append((sim, repo_url, owner))
 
-            candidates.append((similarity, repo_url, owner))
-
-        candidates.sort(reverse=True)
-
-        high_confidence = [
-            url for score, url, _ in candidates if score >= 0.40
-        ]
-        if high_confidence:
-            return high_confidence
-
-        same_owner = [
-            url
-            for _, url, owner in candidates
-            if hf_org and hf_org in owner.lower()
-        ]
+        cands.sort(reverse=True)
+        good = [u for s, u, _ in cands if s >= 0.40]
+        if good:
+            return good
+        same_owner = [u for _, u, o in cands if hf_org and hf_org in o.lower()]
         if same_owner:
             return [same_owner[0]]
+        return [cands[0][1]] if cands else []
 
-        return [candidates[0][1]] if candidates else []
 
-
-# ----------------- HF Client -----------------
-
+# ---------------- HF client (public endpoints only) ----------------
 
 class HFClient:
-    """HuggingFace API client with GitHub URL extraction."""
+    """
+    Hugging Face client using only public endpoints.
+    - /api/models/{id}, /api/datasets/{id} for metadata + files (siblings)
+    - README via raw URLs (no auth)
+    - model_index.json via raw URLs (no auth)
+    """
 
     def __init__(self) -> None:
-        self.token = (
-            os.getenv("HUGGINGFACE_HUB_TOKEN")
-            or os.getenv("HUGGINGFACEHUB_API_TOKEN")
-            or os.getenv("HF_TOKEN")
-        )
-        self.api = HfApi(token=self.token)
-        self._session = _create_session(self.token)
+        self._http = _session()
 
-    # ----- Model & Dataset info -----
+    # ---- Core fetch ----
+
+    def _api_json(self, path: str) -> Dict[str, Any] | None:
+        url = f"https://huggingface.co{path}"
+        r = _retry(lambda: self._http.get(url))
+        if r.status_code in (401, 404):
+            return None
+        r.raise_for_status()
+        try:
+            return r.json()
+        except Exception:
+            return None
+
+    # ---- Info ----
 
     def get_model_info(self, hf_id: str) -> HFModelInfo:
-        info = _retry(lambda: self.api.model_info(hf_id))
-        return self._to_info(hf_id, info, repo_type="model")
+        data = self._api_json(f"/api/models/{hf_id}")
+        if not data:
+            raise FileNotFoundError(f"Model not found: {hf_id}")
+        return self._to_info(hf_id, data)
 
     def get_dataset_info(self, hf_id: str) -> HFModelInfo:
-        # DATASET: ensure we use dataset_info and normalize fields the same way
-        info = _retry(lambda: self.api.dataset_info(hf_id))
-        return self._to_info(hf_id, info, repo_type="dataset")
+        data = self._api_json(f"/api/datasets/{hf_id}")
+        if not data:
+            raise FileNotFoundError(f"Dataset not found: {hf_id}")
+        return self._to_info(hf_id, data)
 
-    # ----- Files -----
+    # ---- Files (siblings) ----
 
-    def list_files(
-        self, hf_id: str, *, repo_type: str = "model"
-    ) -> List[HFFileInfo]:
-        """
-        Works for both models and datasets; pass repo_type="dataset"
-        """
-        try:
-            paths = _retry(
-                lambda: self.api.list_repo_files(hf_id, repo_type=repo_type)
-            )
-            try:
-                infos = _retry(
-                    lambda: self.api.get_paths_info(
-                        hf_id, paths=paths, repo_type=repo_type
-                    )
-                )
-                return [HFFileInfo(path=i.path, size=i.size) for i in infos]
-            except AttributeError:
-                return [HFFileInfo(path=p, size=None) for p in paths]
-        except (GatedRepoError, RepositoryNotFoundError, HfHubHTTPError):
-            raise
+    def list_files(self,
+                   hf_id: str,
+                   *,
+                   repo_type: str = "model") -> List[HFFileInfo]:
+        path = ("/api/models/" + hf_id if repo_type == "model"
+                else "/api/datasets/" + hf_id)
+        data = self._api_json(path) or {}
+        files: List[HFFileInfo] = []
+        sibs = data.get("siblings", [])
+        if isinstance(sibs, list):
+            for s in sibs:
+                rfn = s.get("rfilename")
+                if isinstance(rfn, str) and rfn:
+                    files.append(HFFileInfo(path=rfn, size=s.get("size")))
+        return files
 
-    # Convenience wrappers (optional but handy)
     def list_dataset_files(self, hf_id: str) -> List[HFFileInfo]:
         return self.list_files(hf_id, repo_type="dataset")
 
     def list_model_files(self, hf_id: str) -> List[HFFileInfo]:
         return self.list_files(hf_id, repo_type="model")
 
-    # ----- README -----
+    # ---- README (raw) ----
 
-    def get_readme(
-        self,
-        hf_id: str,
-        *,
-        revision: str = "main",
-        repo_type: Optional[str] = None,
-    ) -> str | None:
-        """
-        Fetch README with awareness of repo_type.
-        For datasets, prefer datasets/<id>; for models, prefer <id>.
-        """
-        plain_id = hf_id.removeprefix("datasets/")
-        dataset_id = f"datasets/{plain_id}"
-
-        base_ids = (
-            [dataset_id, plain_id]
-            if repo_type == "dataset"
-            else (
-                [plain_id, dataset_id]
-                if repo_type == "model"
-                else [plain_id, dataset_id]
-            )
-        )
-
-        for base_id in base_ids:
-            for filename in ["README.md", "README.MD", "readme.md"]:
-                url = (
-                    f"https://huggingface.co/{base_id}/raw/{revision}/"
-                    f"{filename}"
-                )
-                content = _retry(lambda: self._get_text(url))
-                if content:
-                    return content
+    def get_readme(self,
+                   hf_id: str,
+                   *,
+                   revision: str = "main",
+                   repo_type: Optional[str] = None) -> str | None:
+        plain = hf_id.removeprefix("datasets/")
+        ds_id = f"datasets/{plain}"
+        order = ([plain, ds_id] if repo_type == "model"
+                 else [ds_id, plain] if repo_type == "dataset"
+                 else [plain, ds_id])
+        for base in order:
+            for fn in ("README.md", "README.MD", "readme.md"):
+                url = f"https://huggingface.co/{base}/raw/{revision}/{fn}"
+                r = _retry(lambda: self._http.get(url))
+                if r.status_code == 200 and r.text:
+                    return r.text
         return None
 
-    def get_dataset_readme(
-        self, hf_id: str, *, revision: str = "main"
-    ) -> str | None:
-        # DATASET: explicit convenience for callers
+    def get_dataset_readme(self,
+                           hf_id: str,
+                           *,
+                           revision: str = "main") -> str | None:
         return self.get_readme(hf_id, revision=revision, repo_type="dataset")
 
-    def get_model_readme(
-        self, hf_id: str, *, revision: str = "main"
-    ) -> str | None:
+    def get_model_readme(self,
+                         hf_id: str,
+                         *,
+                         revision: str = "main") -> str | None:
         return self.get_readme(hf_id, revision=revision, repo_type="model")
 
-    # ----- model_index.json (rarely used for datasets) -----
+    # ---- model_index.json (raw) ----
 
-    def get_model_index_json(
-        self, hf_id: str, *, revision: str = "main"
-    ) -> Dict | None:
-        plain_id = hf_id.removeprefix("datasets/")
+    def get_model_index_json(self,
+                             hf_id: str,
+                             *,
+                             revision: str = "main") -> Dict | None:
+        plain = hf_id.removeprefix("datasets/")
         urls = [
-            f"https://huggingface.co/{plain_id}/raw/{revision}/"
-            f"model_index.json",
-            f"https://huggingface.co/datasets/{plain_id}/raw/{revision}/"
-            f"model_index.json",
+            (f"https://huggingface.co/{plain}/raw/{revision}/"
+             "model_index.json"),
+            (f"https://huggingface.co/datasets/{plain}/raw/{revision}/"
+             "model_index.json"),
         ]
         for url in urls:
-            data = _retry(lambda: self._get_json(url))
-            if data is not None:
-                return data
+            r = _retry(lambda: self._http.get(url))
+            if r.status_code == 200:
+                try:
+                    return r.json()
+                except Exception:
+                    return None
         return None
 
-    # ----- GitHub URL extraction -----
+    # ---- GitHub URLs from README ----
 
-    def get_github_urls(
-        self,
-        hf_id: str,
-        readme: Optional[str] = None,
-        card_data: Optional[Dict] = None,
-    ) -> List[str]:
-        """
-        Extract GitHub URLs from README, fetching content if needed.
-        Tries model README first, then dataset README (so it works for both).
-        """
+    def get_github_urls(self,
+                        hf_id: str,
+                        readme: Optional[str] = None,
+                        card_data: Optional[Dict] = None) -> List[str]:
         if readme is None:
-            readme = self.get_readme(
-                hf_id, repo_type="model"
-            ) or self.get_readme(hf_id, repo_type="dataset")
+            readme = (self.get_readme(hf_id, repo_type="model")
+                      or self.get_readme(hf_id, repo_type="dataset"))
         if not readme:
             return []
-
         if card_data is None:
-            # Try model -> dataset for card_data as well
-            info = None
-            try:
-                info = self.get_model_info(hf_id)
-            except Exception:
-                try:
-                    info = self.get_dataset_info(hf_id)
-                except Exception:
-                    pass
-            card_data = info.card_data if info else None
-
+            data = (self._api_json(f"/api/models/{hf_id}")
+                    or self._api_json(f"/api/datasets/{hf_id}"))
+            if data and isinstance(data.get("cardData"), dict):
+                card_data = data["cardData"]
         return GitHubMatcher.extract_urls(hf_id, readme, card_data)
 
-    # ----- internal helpers -----
+    # ---- Normalizer ----
 
-    def _to_info(
-        self, hf_id: str, info: Any, *, repo_type: str
-    ) -> HFModelInfo:
-        """
-        Normalize both model_info and dataset_info payloads into HFModelInfo.
-        """
-        card_data = _normalize_card_data(getattr(info, "cardData", None))
-
-        # tags may be list[str] or None across versions
-        raw_tags = getattr(info, "tags", None)
-        if isinstance(raw_tags, (list, set, tuple)):
-            tags = [str(t) for t in raw_tags]
-        elif raw_tags is not None:
-            tags = [str(raw_tags)]
-        else:
-            tags = []
-
-        # Some hub versions expose downloads over last 30d as `downloads`;
-        # all-time may be on `downloadsAllTime` (often None for datasets).
-        downloads_30d = getattr(info, "downloads", None)
-        downloads_all_time = getattr(info, "downloadsAllTime", None)
-
-        created_at = getattr(info, "created_at", None)
-        last_modified = getattr(info, "last_modified", None)
-        gated = getattr(info, "gated", None)
-        private = getattr(info, "private", None)
-        likes = getattr(info, "likes", None)
+    def _to_info(self, hf_id: str, data: Dict[str, Any]) -> HFModelInfo:
+        card = _normalize_card_data(data.get("cardData"))
+        tags = [str(t) for t in data.get("tags", [])] \
+            if isinstance(data.get("tags"), list) else []
+        likes = data.get("likes") if isinstance(data.get("likes"), int) \
+            else None
+        d30 = data.get("downloads") if isinstance(data.get("downloads"), int) \
+            else None
+        dall = (data.get("downloadsAllTime")
+                if isinstance(data.get("downloadsAllTime"), int)
+                else None)
+        created = str(data.get("createdAt")) \
+            if data.get("createdAt") is not None else None
+        modified = str(data.get("lastModified")) \
+            if data.get("lastModified") is not None else None
+        gated = bool(data.get("gated")) if data.get("gated") is not None \
+            else None
+        private = (
+            bool(data.get("private"))
+            if data.get("private") is not None
+            else None
+        )
 
         return HFModelInfo(
             hf_id=hf_id,
-            card_data=card_data,
+            card_data=card,
             tags=tags,
-            likes=likes if isinstance(likes, int) else None,
-            downloads_30d=(
-                downloads_30d if isinstance(downloads_30d, int) else None
-            ),
-            downloads_all_time=(
-                downloads_all_time
-                if isinstance(downloads_all_time, int)
-                else None
-            ),
-            created_at=str(created_at) if created_at is not None else None,
-            last_modified=(
-                str(last_modified) if last_modified is not None else None
-            ),
-            gated=bool(gated) if gated is not None else None,
-            private=bool(private) if private is not None else None,
+            likes=likes,
+            downloads_30d=d30,
+            downloads_all_time=dall,
+            created_at=created,
+            last_modified=modified,
+            gated=gated,
+            private=private,
         )
 
-    def _get_text(self, url: str) -> str | None:
-        r = self._session.get(url)
-        if r.status_code == 404:
-            return None
-        if r.status_code == 401:
-            raise GatedRepoError(f"401 Unauthorized for {url}")
-        r.raise_for_status()
-        return r.text
 
-    def _get_json(self, url: str) -> Dict | None:
-        r = self._session.get(url)
-        if r.status_code == 404:
-            return None
-        if r.status_code == 401:
-            raise GatedRepoError(f"401 Unauthorized for {url}")
-        r.raise_for_status()
-        return r.json()
-
-
-# Backward compatibility
-def github_urls_from_readme(
-    hf_id: str, readme: str, *, card_data: Dict | None = None
-) -> List[str]:
+# Back-compat shim
+def github_urls_from_readme(hf_id: str,
+                            readme: str,
+                            *,
+                            card_data: Dict | None = None) -> List[str]:
     return GitHubMatcher.extract_urls(hf_id, readme, card_data)

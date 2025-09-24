@@ -127,7 +127,7 @@ class RepoContext:
 
     def total_weight_gb(self) -> float:
         """Total weight size in GiB."""
-        return self.total_weight_bytes() / (1024**3)
+        return self.total_weight_bytes() / (1000**3)
 
     def add_files(self, paths: Iterable[Path]) -> None:
         """

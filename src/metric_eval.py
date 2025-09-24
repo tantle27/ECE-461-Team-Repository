@@ -68,7 +68,7 @@ def init_metrics() -> List[BaseMetric]:
         try:
             mod = __import__(mod_path, fromlist=[cls_name])
             cls = getattr(mod, cls_name)
-            m: BaseMetric = cls()  # type: ignore
+            m: BaseMetric = cls()
             if getattr(m, "name", None) != expected_name:
                 raise ValueError(
                     f"Metric '{cls_name}' name='{getattr(m, 'name', None)}' "
