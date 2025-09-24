@@ -19,7 +19,7 @@ class LLMAnalyzer:
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo"):
         """
         Initialize the LLM analyzer.
-        
+
         Args:
             api_key: OpenAI API key (or set OPENAI_API_KEY env var)
             model: LLM model to use for analysis
@@ -43,8 +43,8 @@ class LLMAnalyzer:
         session.mount("https://", adapter)
         return session
 
-    def analyze_dataset_quality(self, readme_content: str, 
-                              metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze_dataset_quality(
+            self, readme_content: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze README and metadata to evaluate dataset quality indicators.
         
@@ -68,11 +68,15 @@ class LLMAnalyzer:
             print(f"LLM analysis failed: {e}, falling back to rule-based analysis")
             return self._fallback_analysis(readme_content, metadata)
 
-    def _create_analysis_prompt(self, readme_content: str, 
-                              metadata: Dict[str, Any]) -> str:
+    def _create_analysis_prompt(
+        self, 
+        readme_content: str, 
+        metadata: Dict[str, Any]
+    ) -> str:
         """Create a structured prompt for dataset quality analysis."""
         prompt = f"""
-Analyze the following repository's README and metadata to evaluate dataset quality indicators for an AI/ML model repository.
+Analyze the following repository's README and metadata to evaluate dataset quality 
+indicators for an AI/ML model repository.
 
 README Content:
 {readme_content[:2000]}  # Truncate for API limits
@@ -82,9 +86,12 @@ Metadata:
 
 Please evaluate and return a JSON response with the following boolean/numeric fields:
 
-1. has_data_validation: Does the repository mention data validation, cleaning, or preprocessing steps?
-2. data_diversity_score: Score 0.0-1.0 based on mentions of data diversity, multiple sources, balanced datasets
-3. data_completeness: Score 0.0-1.0 based on mentions of complete datasets, missing data handling, data coverage
+1. has_data_validation: Does the repository mention data validation, cleaning, or 
+   preprocessing steps?
+2. data_diversity_score: Score 0.0-1.0 based on mentions of data diversity, 
+   multiple sources, balanced datasets
+3. data_completeness: Score 0.0-1.0 based on mentions of complete datasets, 
+   missing data handling, data coverage
 4. has_dataset_card: Does it mention dataset cards, data sheets, or dataset documentation?
 5. data_fields_documented: Are the data fields, schema, or format well documented?
 6. example_usage: Are there clear examples of how to use the dataset?
@@ -116,7 +123,13 @@ Return only valid JSON in this exact format:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are an expert in dataset quality assessment for AI/ML repositories. Always respond with valid JSON only."},
+                {
+                    "role": "system", 
+                    "content": (
+                        "You are an expert in dataset quality assessment for AI/ML repositories. "
+                        "Always respond with valid JSON only."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.1,
@@ -199,10 +212,18 @@ Return only valid JSON in this exact format:
         diversity_score = min(1.0, sum(readme_lower.count(kw) for kw in diversity_keywords) * 0.2)
         
         completeness_keywords = ['complete', 'comprehensive', 'full coverage']
-        completeness_score = min(1.0, sum(readme_lower.count(kw) for kw in completeness_keywords) * 0.3)
+        # Calculate score for completeness keywords
+        completeness_score = min(
+            1.0, 
+            sum(readme_lower.count(kw) for kw in completeness_keywords) * 0.3
+        )
         
         credibility_keywords = ['official', 'verified', 'peer-reviewed', 'published']
-        credibility_score = min(1.0, sum(readme_lower.count(kw) for kw in credibility_keywords) * 0.25)
+        # Calculate score for credibility keywords
+        credibility_score = min(
+            1.0, 
+            sum(readme_lower.count(kw) for kw in credibility_keywords) * 0.25
+        )
         
         bias_keywords = ['bias', 'limitation', 'fairness', 'ethical']
         bias_score = min(1.0, sum(readme_lower.count(kw) for kw in bias_keywords) * 0.3)
@@ -324,7 +345,9 @@ Evaluate and return JSON with these fields:
         
         # Calculate documentation quality based on comments and docstrings
         lines = code_content.split('\n')
-        comment_lines = sum(1 for line in lines if line.strip().startswith(('#', '"""', "'''", '//')))
+        # Count lines with comments or docstrings
+        comment_markers = ('#', '"""', "'''", '//')
+        comment_lines = sum(1 for line in lines if line.strip().startswith(comment_markers))
         doc_quality = min(1.0, comment_lines / max(1, len(lines)) * 3)
         
         implementation_score = (
