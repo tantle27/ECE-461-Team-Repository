@@ -1,6 +1,4 @@
 # db.py
-from __future__ import annotations
-
 """
 SQLite persistence layer for ACME CLI.
 
@@ -10,10 +8,11 @@ This module provides a small DAO-style API with:
 - link_resources(...)
 - upsert_metric(...)
 - resource_id_by_key(...)
-- latest_metric(...)
 
 Public function signatures are preserved for drop-in compatibility.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
@@ -188,40 +187,6 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 # ----------------------------- Canonical Keys --------------------------------
-
-
-def canonical_for(
-    category: Category,
-    *,
-    hf_id: Optional[str],
-    url: Optional[str],
-    gh_owner_repo: Optional[tuple[str, str]] = None,
-) -> str:
-    """
-    Create a canonical identity string by category.
-    Mirrors RepoContext’s canonical logic to avoid duplication elsewhere.
-    """
-    if category == "DATASET":
-        if hf_id:
-            return hf_id.lower().removeprefix("datasets/")
-        if url:
-            return url.lower()
-        return ""
-
-    if category == "CODE":
-        if gh_owner_repo:
-            owner, repo = gh_owner_repo
-            return f"https://github.com/{owner}/{repo}"
-        if url:
-            return url.lower()
-        return ""
-
-    # MODEL
-    if hf_id:
-        return hf_id.lower()
-    if url:
-        return url.lower()
-    return ""
 
 
 def upsert_resource(
@@ -430,23 +395,4 @@ def resource_id_by_key(
     return int(row["id"]) if row else None
 
 
-def latest_metric(
-    conn: sqlite3.Connection,
-    *,
-    resource_id: int,
-    metric_name: str,
-) -> Optional[sqlite3.Row]:
-    """
-    Return the newest metric row for (resource_id, metric_name),
-    or None if not present.
-    """
-    return conn.execute(
-        (
-            "SELECT * "
-            "FROM metric_results "
-            "WHERE resource_id=? AND metric_name=? "
-            "ORDER BY updated_ts DESC "
-            "LIMIT 1"
-        ),
-        (resource_id, metric_name),
-    ).fetchone()
+
