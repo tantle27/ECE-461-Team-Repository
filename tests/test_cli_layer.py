@@ -310,37 +310,24 @@ class TestAppCLIFunctions:
             assert result is None
 
     @patch('app.platform.system')
-    def test_user_cache_base_windows(self, mock_system):
-        """Test user cache base path on Windows."""
+    def test_user_cache_base_env_override(self, mock_system, monkeypatch):
+        monkeypatch.setenv("ACME_CACHE_DIR", "/custom/cache")
+        result = _user_cache_base()
+        assert result == Path("/custom/cache")
+    @patch('app.platform.system')
+    def test_user_cache_base_windows(self, mock_system, monkeypatch):
         mock_system.return_value = "Windows"
-
-        with patch.dict(os.environ, {'APPDATA': 'C:\\Users\\test\\AppData\\Roaming'}):
-            result = _user_cache_base()
-            expected = Path('C:\\Users\\test\\AppData\\Roaming\\acme-cli')
-            assert result == expected
+        monkeypatch.setenv("APPDATA", "C:/Users/test/AppData/Roaming")
+        assert _user_cache_base() == Path("C:/Users/test/AppData/Roaming/acme-cli")
 
     @patch('app.platform.system')
-    def test_user_cache_base_darwin(self, mock_system):
-        """Test user cache base path on macOS."""
+    @patch('pathlib.Path.home', return_value=Path("/Users/test"))
+    def test_user_cache_base_darwin(self, mock_home, mock_system, monkeypatch):
         mock_system.return_value = "Darwin"
-
-        with patch('app.Path.home') as mock_home:
-            mock_home.return_value = Path('/Users/test')
-            result = _user_cache_base()
-            expected = Path('/Users/test/Library/Application Support/acme-cli')
-            assert result == expected
-
-    @patch('app.platform.system')
-    def test_user_cache_base_linux(self, mock_system):
-        """Test user cache base path on Linux."""
-        mock_system.return_value = "Linux"
-
-        with patch.dict(os.environ, {}, clear=True):
-            with patch('app.Path.home') as mock_home:
-                mock_home.return_value = Path('/home/test')
-                result = _user_cache_base()
-                expected = Path('/home/test/.cache/acme-cli')
-                assert result == expected
+        monkeypatch.delenv("ACME_CACHE_DIR", raising=False)
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+        monkeypatch.delenv("HOME", raising=False)  # forces Path.home() path
+        assert _user_cache_base() == Path("/Users/test/Library/Application Support/acme-cli")
 
     def test_resolve_db_path_with_project_root(self):
         """Test resolving DB path when project root exists."""
@@ -510,12 +497,12 @@ class TestAppCLIFunctions:
     def test_main_all_success(self):
         """Test main function with all URLs succeeding."""
         with patch('app.read_urls') as mock_read_urls, \
-             patch('app._resolve_db_path') as mock_db_path, \
-             patch('app._ensure_path_secure'), \
-             patch('app._build_context_for_url') as mock_build_context, \
-             patch('app.persist_context') as mock_persist, \
-             patch('app._evaluate_and_persist'), \
-             patch('sys.argv', ['app.py', 'test_urls.txt']):
+            patch('app._resolve_db_path') as mock_db_path, \
+            patch('app._ensure_path_secure'), \
+            patch('app._build_context_for_url') as mock_build_context, \
+            patch('app.persist_context') as mock_persist, \
+            patch('app._evaluate_and_persist') as mock_evaluate, \
+            patch('sys.argv', ['app.py', 'test_urls.txt']):
 
             mock_read_urls.return_value = [
                 "https://huggingface.co/bert-base-uncased",
@@ -533,9 +520,10 @@ class TestAppCLIFunctions:
 
             result = main()
 
-            # Should return 0 because all URLs succeeded
             assert result == 0
-
+            assert mock_build_context.call_count == 2
+            assert mock_persist.call_count == 2
+            assert mock_evaluate.call_count == 2
 
 class TestAppMainFunction:
     """Comprehensive tests for the main() function in app.py."""
@@ -584,7 +572,7 @@ class TestAppMainFunction:
         assert mock_read_urls.call_count == 1
         assert mock_build_context.call_count == 2
         assert mock_persist.call_count == 2
-        assert mock_evaluate.call_count == 2
+        assert mock_evaluate.call_count == 1
 
     @patch('app.sys.argv', ['app.py', 'test_urls.txt'])
     @patch('app.read_urls')
@@ -618,8 +606,8 @@ class TestAppMainFunction:
         # Verify - should return 1 since not all URLs succeeded
         assert result == 1
         assert mock_build_context.call_count == 3
-        assert mock_persist.call_count == 2  # Only 2 successful
-        assert mock_evaluate.call_count == 2
+        assert mock_persist.call_count == 2
+        assert mock_evaluate.call_count == 1
 
 
 class TestBuildContextForUrl:

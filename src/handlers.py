@@ -15,6 +15,7 @@ from url_router import UrlRouter, UrlType
 
 # ---------------- Utilities ----------------
 
+
 def _retry_loop(max_retries: int = 3, base_delay: float = 1.0):
     delay = base_delay
     for attempt in range(max_retries):
@@ -31,6 +32,7 @@ def _safe_ext(path_str: str) -> str:
 
 # ---------------- Base ----------------
 
+
 class UrlHandler:
     def __init__(self, url: Optional[str] = None):
         self.url = url
@@ -40,6 +42,7 @@ class UrlHandler:
 
 
 # ---------------- MODEL (HF) ----------------
+
 
 class ModelUrlHandler(UrlHandler):
     def __init__(self, url: Optional[str] = None):
@@ -82,9 +85,7 @@ class ModelUrlHandler(UrlHandler):
                     for fi in (files or [])
                 ]
 
-                ctx.readme_text = self.hf_client.get_readme(
-                    parsed.hf_id
-                ) or ""
+                ctx.readme_text = self.hf_client.get_readme(parsed.hf_id) or ""
                 ctx.model_index = self.hf_client.get_model_index_json(
                     parsed.hf_id
                 )
@@ -99,21 +100,15 @@ class ModelUrlHandler(UrlHandler):
                             ctx.contributors = code_ctx.contributors
                 except Exception as e:
                     ctx.api_errors += 1
-                    ctx.fetch_logs.append(
-                        f"Linked code hydrate failed: {e}"
-                    )
+                    ctx.fetch_logs.append(f"Linked code hydrate failed: {e}")
 
                 # Linked datasets (HF)
                 try:
                     ds_ids = set()
                     ds_ids |= set(
-                        datasets_from_card(
-                            ctx.card_data or {}, ctx.tags or []
-                        )
+                        datasets_from_card(ctx.card_data or {}, ctx.tags or [])
                     )
-                    ds_ids |= set(
-                        datasets_from_readme(ctx.readme_text or "")
-                    )
+                    ds_ids |= set(datasets_from_readme(ctx.readme_text or ""))
                     for did in ds_ids:
                         ds_url = f"https://huggingface.co/datasets/{did}"
                         try:
@@ -126,9 +121,7 @@ class ModelUrlHandler(UrlHandler):
                             )
                 except Exception as e:
                     ctx.api_errors += 1
-                    ctx.fetch_logs.append(
-                        f"Dataset discovery error: {e}"
-                    )
+                    ctx.fetch_logs.append(f"Dataset discovery error: {e}")
 
                 break  # success
 
@@ -147,6 +140,7 @@ class ModelUrlHandler(UrlHandler):
 
 
 # ---------------- DATASET (HF) ----------------
+
 
 class DatasetUrlHandler(UrlHandler):
     def __init__(self, url: Optional[str] = None):
@@ -176,9 +170,7 @@ class DatasetUrlHandler(UrlHandler):
                 ctx.gated = info.gated
                 ctx.private = info.private
 
-                ctx.readme_text = (
-                    self.hf_client.get_readme(parsed.hf_id) or ""
-                )
+                ctx.readme_text = self.hf_client.get_readme(parsed.hf_id) or ""
                 break
             except FileNotFoundError as e:
                 ctx.api_errors += 1
@@ -194,6 +186,7 @@ class DatasetUrlHandler(UrlHandler):
 
 
 # ---------------- CODE (GitHub) ----------------
+
 
 class CodeUrlHandler(UrlHandler):
     def __init__(self, url: Optional[str] = None):
@@ -219,14 +212,13 @@ class CodeUrlHandler(UrlHandler):
             info = self.gh_client.get_repo(owner, repo)
             if not info:
                 ctx.api_errors += 1
-                ctx.fetch_logs.append(
-                    f"GitHub repo {owner}/{repo} not found"
-                )
+                ctx.fetch_logs.append(f"GitHub repo {owner}/{repo} not found")
                 return ctx
 
             ctx.private = (
                 bool(getattr(info, "private", None))
-                if info.private is not None else None
+                if info.private is not None
+                else None
             )
             ctx.card_data = {
                 "default_branch": getattr(info, "default_branch", None),
@@ -254,9 +246,7 @@ class CodeUrlHandler(UrlHandler):
                 ]
             except Exception as ce:
                 ctx.api_errors += 1
-                ctx.fetch_logs.append(
-                    f"GitHub contributors error: {ce}"
-                )
+                ctx.fetch_logs.append(f"GitHub contributors error: {ce}")
 
             # Files tree (best-effort)
             try:
@@ -351,6 +341,7 @@ def datasets_from_readme(readme_text: str | None) -> list[str]:
 
 
 # ---------------- Builders ----------------
+
 
 def build_model_context(url: str) -> RepoContext:
     return ModelUrlHandler(url).fetchMetaData()

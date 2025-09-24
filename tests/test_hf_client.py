@@ -1,5 +1,6 @@
 """
-Comprehensive unit tests for hf_client.py consolidated from coverage-focused files.
+Comprehensive unit tests for hf_client.py aligned with the refactored client
+(no token handling, public endpoints only).
 """
 
 import pytest
@@ -53,23 +54,23 @@ class TestHFClientHelpers:
         assert result == data
 
     def test_normalize_card_data_fallback_str(self):
-        """Test _normalize_card_data fallback for string conversion."""
+        """Test _normalize_card_data fallback for unknown objects."""
         class MockObj:
             def __str__(self):
                 return '{"license": "MIT"}'
 
         mock_obj = MockObj()
         result = _normalize_card_data(mock_obj)
-        # Should return empty dict when object can't be converted
+        # Should return empty dict when object can't be converted via known APIs
         assert result == {}
 
     def test_create_session_function(self):
         """Test _create_session function creates session with timeout adapter."""
-        with patch('api.hf_client.requests.Session') as mock_session_class:
+        with patch('src.api.hf_client.requests.Session') as mock_session_class:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
 
-            session = _create_session("test_token")
+            session = _create_session()  # <- no token
 
             # Should have mounted timeout adapter
             mock_session.mount.assert_called()
@@ -196,8 +197,7 @@ class TestGitHubMatcher:
         """Test GitHubMatcher._normalize static method."""
         assert GitHubMatcher._normalize("hf-transformers") == "transformers"
         assert GitHubMatcher._normalize("HUGGINGFACE-models") == "models"
-        assert "test" in GitHubMatcher._normalize(
-            "test-project-dev")  # More flexible test
+        assert "test" in GitHubMatcher._normalize("test-project-dev")
 
     def test_github_matcher_tokenize_method(self):
         """Test GitHubMatcher._tokenize static method."""
@@ -208,41 +208,21 @@ class TestGitHubMatcher:
 
 
 class TestHFClientInitialization:
-    """Test HFClient initialization and configuration."""
+    """Test HFClient initialization and configuration (no token path)."""
 
-    @patch.dict(os.environ, {'HF_TOKEN': 'test_token'}, clear=True)
-    def test_hf_client_token_from_env(self):
-        """Test HFClient token environment variable priority."""
-        with patch('api.hf_client._create_session') as mock_create_session:
-            mock_session = Mock()
-            mock_create_session.return_value = mock_session
-
-            # Mock requests module
-            with patch('api.hf_client.requests') as mock_requests:
-                mock_requests.Session.return_value = mock_session
-
-                client = HFClient()
-                assert client.token == 'test_token'
-
-    @patch.dict(os.environ, {}, clear=True)
-    def test_hf_client_no_token(self):
-        """Test HFClient with no token available."""
-        with patch('api.hf_client._create_session'):
-            client = HFClient()
-            assert client.token is None
-
-    @patch.dict(os.environ, {'HF_TOKEN': 'env_token'}, clear=True)
-    def test_hf_client_creates_session(self):
-        """Test HFClient creates session with token."""
+    def test_hf_client_initializes_without_token(self):
+        """HFClient should initialize a session and an HfApi instance."""
         with patch('src.api.hf_client._create_session') as mock_create:
-            with patch('src.api.hf_client.HfApi'):
+            with patch('src.api.hf_client.HfApi') as mock_hfapi:
                 mock_session = Mock()
                 mock_create.return_value = mock_session
 
                 client = HFClient()
 
-                mock_create.assert_called_once_with('env_token')
-                assert client._session == mock_session
+                mock_create.assert_called_once_with()
+                mock_hfapi.assert_called_once_with()
+                assert getattr(client, "_session", None) is mock_session
+                assert getattr(client, "api", None) is not None
 
 
 class TestHFClientMethods:
@@ -250,8 +230,8 @@ class TestHFClientMethods:
 
     def setup_method(self):
         """Setup HFClient for testing."""
-        with patch('api.hf_client._create_session'):
-            with patch('api.hf_client.HfApi'):
+        with patch('src.api.hf_client._create_session'):
+            with patch('src.api.hf_client.HfApi'):
                 self.client = HFClient()
 
     def test_list_files_with_attribute_error_handling(self):
@@ -274,7 +254,7 @@ class TestHFClientMethods:
             assert result is None
 
     def test_get_dataset_info_basic(self):
-        """Test get_dataset_info method."""
+        """Test get_dataset_info method via HfApi normalization path."""
         mock_api = Mock()
         mock_info = Mock()
         mock_info.modelId = "test-dataset"
@@ -294,6 +274,11 @@ class TestHFClientMethods:
 
             mock_api.dataset_info.assert_called_once_with("test-dataset")
             assert result.hf_id == "test-dataset"
+            assert result.card_data == {"license": "apache-2.0"}
+            assert result.tags == ["dataset"]
+            assert result.likes == 50
+            assert result.downloads_30d == 1000
+            assert result.private is False
 
     def test_get_model_readme_method(self):
         """Test get_model_readme convenience method."""
@@ -337,8 +322,8 @@ class TestHFClientEdgeCases:
 
     def setup_method(self):
         """Setup HFClient for testing."""
-        with patch('api.hf_client._create_session'):
-            with patch('api.hf_client.HfApi'):
+        with patch('src.api.hf_client._create_session'):
+            with patch('src.api.hf_client.HfApi'):
                 self.client = HFClient()
 
     def test_normalize_card_data_with_exception(self):

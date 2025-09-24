@@ -12,6 +12,7 @@ from .base_metric import BaseMetric
 @dataclass(frozen=True)
 class HeuristicWeights:
     """Heuristic sub-weights (sum ~= 1)."""
+
     quickstart: float = 0.30
     examples: float = 0.30
     docs_depth: float = 0.25
@@ -21,9 +22,9 @@ class HeuristicWeights:
 @dataclass(frozen=True)
 class BlendCfg:
     """Blend LLM and heuristics (LLM-forward but fair)."""
+
     llm_weight: float = 0.70
     heu_weight: float = 0.30
-    # cap how much LLM can override heuristics in either direction
     fairness_cap: float = 0.35
 
 
@@ -52,18 +53,15 @@ class RampUpTimeMetric(BaseMetric):
             llm, conf, parts = self._score_with_llm(readme)
             repo_context["_rampup_llm_parts"] = parts
 
-            # Confidence-aware blend: stronger pull at higher confidence.
             base_w = self._blend.llm_weight
             conf_w = min(0.25, 0.5 * max(0.0, conf - 0.5))
             w_llm = min(0.9, base_w + conf_w)
             w_heu = 1.0 - w_llm
             raw = w_llm * llm + w_heu * heur
 
-            # Fairness: bound deviation from heuristics.
             cap = self._blend.fairness_cap
             final = heur + max(-cap, min(cap, raw - heur))
 
-            # Gentle floor if any basic signal exists.
             if parts.get("any_signal"):
                 final = max(final, 0.25)
 
@@ -72,18 +70,24 @@ class RampUpTimeMetric(BaseMetric):
             return heur
 
     def get_description(self) -> str:
-        return ("LLM-forward ramp-up score with confidence, bounded override, "
-                "and generous partial credit for quickstarts/examples.")
+        return (
+            "Measures the ease of getting started: quickstarts, examples, "
+            "setup docs, and external documentation signals. "
+            "LLM-forward ramp-up score with confidence and bounded override."
+        )
 
     # ---------- LLM integration ----------
 
     def _score_with_llm(
         self, readme: str
     ) -> Tuple[float, float, Dict[str, float]]:
-        sys = ("You are an engineering documentation rater. "
-               "Return ONLY one JSON object.")
-        res = self._llm.ask_json(sys, self._make_llm_prompt(readme),
-                                 max_tokens=700)
+        sys = (
+            "You are an engineering documentation rater. "
+            "Return ONLY one JSON object."
+        )
+        res = self._llm.ask_json(
+            sys, self._make_llm_prompt(readme), max_tokens=700
+        )
         if not res.ok or not isinstance(res.data, dict):
             raise RuntimeError(res.error or "LLM returned no JSON")
 
@@ -103,21 +107,24 @@ class RampUpTimeMetric(BaseMetric):
         }
         # Detect "any signal" for a fair floor
         parts["any_signal"] = any(
-            parts[k] > 0.0 for k in (
-                "quickstart_clarity", "examples_quality",
-                "docs_depth", "external_docs_quality"
+            parts[k] > 0.0
+            for k in (
+                "quickstart_clarity",
+                "examples_quality",
+                "docs_depth",
+                "external_docs_quality",
             )
         )
 
         hw = self._hw
-        llm = (hw.quickstart * parts["quickstart_clarity"] +
-               hw.examples * parts["examples_quality"] +
-               hw.docs_depth * parts["docs_depth"] +
-               hw.ext_docs * parts["external_docs_quality"])
-        # reward easy setup; clamp to [0,1]
+        llm = (
+            hw.quickstart * parts["quickstart_clarity"]
+            + hw.examples * parts["examples_quality"]
+            + hw.docs_depth * parts["docs_depth"]
+            + hw.ext_docs * parts["external_docs_quality"]
+        )
         llm = self._clamp01(llm + 0.10 * parts["setup_friction"])
 
-        # Light uplift if anything is present (avoid harsh near-zero).
         if llm > 0.0:
             llm = self._clamp01(0.10 + 0.90 * llm)
 
@@ -151,7 +158,8 @@ class RampUpTimeMetric(BaseMetric):
         if isinstance(ctx, RepoContext) and ctx.linked_code:
             best = max(
                 (c for c in ctx.linked_code if isinstance(c, RepoContext)),
-                key=lambda c: len(c.readme_text or ""), default=None
+                key=lambda c: len(c.readme_text or ""),
+                default=None,
             )
             if best and best.readme_text:
                 extra = best.readme_text.strip()[:4000]
@@ -162,22 +170,27 @@ class RampUpTimeMetric(BaseMetric):
     def _heuristic_parts(self, readme: str) -> Dict[str, float]:
         r = (readme or "").lower()
         has_install = any(
-            k in r for k in (
-                "pip install", "conda install", "poetry add", "npm i ",
-                "npm install"
+            k in r
+            for k in (
+                "pip install",
+                "conda install",
+                "poetry add",
+                "npm i ",
+                "npm install",
             )
         )
         has_quick = any(
-            k in r for k in (
-                "getting started", "quickstart", "quick start", "setup"
-            )
+            k in r
+            for k in ("getting started", "quickstart", "quick start", "setup")
         )
-        has_usage = any(k in r for k in (
-            "usage", "example", "inference", "train", "run"
-        ))
-        quickstart = (0.85 if ("```" in r or "import " in r) else 0.65) \
-            if (has_install and (has_quick or has_usage)) else \
-            (0.45 if (has_install or has_quick or has_usage) else 0.0)
+        has_usage = any(
+            k in r for k in ("usage", "example", "inference", "train", "run")
+        )
+        quickstart = (
+            (0.85 if ("```" in r or "import " in r) else 0.65)
+            if (has_install and (has_quick or has_usage))
+            else (0.45 if (has_install or has_quick or has_usage) else 0.0)
+        )
         has_code_fence = "```" in r
         has_notebook = ".ipynb" in r or "colab" in r
         has_demo = any(k in r for k in ("demo", "example", "samples", "nb"))
@@ -185,17 +198,25 @@ class RampUpTimeMetric(BaseMetric):
             0.9 if (has_code_fence and (has_notebook or has_demo)) else 0.0
         )
         has_api = any(
-            k in r for k in (
-                "api reference",
-                "api docs",
-                "reference"))
+            k in r for k in ("api reference", "api docs", "reference")
+        )
         has_cfg = any(k in r for k in ("configuration", "config", "settings"))
-        has_trb = ("troubleshooting" in r or "faq" in r)
-        docs_depth = 0.85 if (has_api and (has_cfg or has_trb)) else \
-            (0.55 if (has_api or has_cfg or has_trb) else 0.0)
-        has_ext = any(k in r for k in (
-            "readthedocs", "https://docs.", "http://docs.", "wiki", "mkdocs"
-        ))
+        has_trb = "troubleshooting" in r or "faq" in r
+        docs_depth = (
+            0.85
+            if (has_api and (has_cfg or has_trb))
+            else (0.55 if (has_api or has_cfg or has_trb) else 0.0)
+        )
+        has_ext = any(
+            k in r
+            for k in (
+                "readthedocs",
+                "https://docs.",
+                "http://docs.",
+                "wiki",
+                "mkdocs",
+            )
+        )
         ext_docs = 0.6 if has_ext else 0.0
         return {
             "quickstart": quickstart,
@@ -205,14 +226,20 @@ class RampUpTimeMetric(BaseMetric):
         }
 
     def _combine_heuristics(
-        self, *, quickstart: float, examples: float,
-        docs_depth: float, ext_docs: float
+        self,
+        *,
+        quickstart: float,
+        examples: float,
+        docs_depth: float,
+        ext_docs: float,
     ) -> float:
         hw = self._hw
-        score = (hw.quickstart * self._clamp01(quickstart) +
-                 hw.examples * self._clamp01(examples) +
-                 hw.docs_depth * self._clamp01(docs_depth) +
-                 hw.ext_docs * self._clamp01(ext_docs))
+        score = (
+            hw.quickstart * self._clamp01(quickstart)
+            + hw.examples * self._clamp01(examples)
+            + hw.docs_depth * self._clamp01(docs_depth)
+            + hw.ext_docs * self._clamp01(ext_docs)
+        )
         return self._clamp01(score)
 
     # ---------- utils ----------

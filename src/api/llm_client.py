@@ -36,17 +36,51 @@ def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
             return {}
 
 
+@dataclass
+class LLMResult:
+    ok: bool
+    data: Dict[str, Any] | None
+    raw_text: str | None
+    error: str | None
+    latency_ms: int
+
+
+def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        # Sometimes models wrap JSON in code fences — strip and retry.
+        s = raw.strip()
+        if s.startswith("```"):
+            s = s.strip("`")
+            # remove possible "json" language hint
+            if s.lower().startswith("json"):
+                s = s[4:]
+        s = s.strip()
+        try:
+            return json.loads(s)
+        except Exception:
+            return {}
+
+
 class LLMClient:
     def __init__(self) -> None:
         self.provider: str | None = None
-        if os.getenv("GENAI_API_KEY"):
+        self.api_key: str | None = (
+            os.getenv("GENAI_API_KEY") or ""
+        ).strip() or None
+        if self.api_key:
             self.provider = "purdue_genai"
             self._genai_url = os.getenv(
                 "GENAI_API_URL",
                 "https://genai.rcac.purdue.edu/api/chat/completions",
             )
             self._genai_model = os.getenv("GENAI_MODEL", "llama3.1:latest")
-        # else remains None
+
+    def is_available(self) -> bool:
+        return bool(self.provider) and bool(self.api_key)
 
     def ask_json(
         self,
@@ -54,27 +88,76 @@ class LLMClient:
         prompt: str,
         *,
         max_tokens: int = 800,
-        temperature: float = 0.0
+        temperature: float = 0.0,
     ) -> LLMResult:
-        if not self.provider:
+        if not self.is_available():
             return LLMResult(
-                False, None, None, "No LLM provider configured", 0)
+                False, None, None, "No LLM provider configured", 0
+            )
 
         start = time.time()
         try:
             raw = ""
             if self.provider == "purdue_genai":
                 raw = self._call_purdue_genai(
-                    system, prompt, max_tokens, temperature)
+                    system, prompt, max_tokens, temperature
+                )
             else:
                 raise RuntimeError(f"Unsupported provider: {self.provider}")
 
             parsed = _clamp_json_object(raw)
             return LLMResult(
-                True, parsed, raw, None, int((time.time() - start) * 1000))
+                True, parsed, raw, None, int((time.time() - start) * 1000)
+            )
         except Exception as e:
             return LLMResult(
-                False, None, None, str(e), int((time.time() - start) * 1000))
+                False, None, None, str(e), int((time.time() - start) * 1000)
+            )
+
+    # ---- providers ----
+
+    def _call_purdue_genai(
+        self, system: str, prompt: str, max_tokens: int, temperature: float
+    ) -> str:
+        """
+        Calls Purdue GenAI OpenAI-compatible /chat/completions.
+        We keep stream=False to simplify parsing.
+        """
+        api_key = os.environ["GENAI_API_KEY"]
+        url = self._genai_url
+        model = self._genai_model
+
+        system_msg = (
+            "You are a strict JSON generator. "
+            "Only output a single valid JSON object, no prose."
+            "\n\n" + system
+        )
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False,  # simpler parse
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(url, headers=headers, json=body, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # OpenAI-style shape:
+        # choices[0].message.content is the text
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        msg = choices[0].get("message") or {}
+        return msg.get("content") or ""
+
     # ---- providers ----
 
     def _call_purdue_genai(

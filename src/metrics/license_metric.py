@@ -31,11 +31,30 @@ COMPATIBLE_MAP = {
 }
 
 INCOMP_KEYS = {
-    "gpl-3.0", "gpl-3", "gplv3", "gpl-2.0", "gpl-2", "gplv2",
-    "agpl-3.0", "agpl-3", "agplv3", "agpl",
-    "lgpl-3.0", "lgpl-3", "lgplv3", "lgpl-2.1-or-later", "lgpl-2.1+",
-    "copyleft", "proprietary", "allrightsreserved", "all-rights-reserved",
-    "cc-by", "cc-by-sa", "cc-by-nc", "cc-by-nd", "cc0-nd",
+    "gpl-3.0",
+    "gpl-3",
+    "gplv3",
+    "gpl-2.0",
+    "gpl-2",
+    "gplv2",
+    "agpl-3.0",
+    "agpl-3",
+    "agplv3",
+    "agpl",
+    "lgpl-3.0",
+    "lgpl-3",
+    "lgplv3",
+    "lgpl-2.1-or-later",
+    "lgpl-2.1+",
+    "copyleft",
+    "proprietary",
+    "allrightsreserved",
+    "all-rights-reserved",
+    "cc-by",
+    "cc-by-sa",
+    "cc-by-nc",
+    "cc-by-nd",
+    "cc0-nd",
 }
 
 
@@ -55,14 +74,17 @@ def _to_list(x: Any) -> List[str]:
             if isinstance(v, str):
                 out.append(_lower(v))
             elif isinstance(v, dict):
-                sid = v.get("id") or v.get("spdx_id") or v.get("slug") \
-                      or v.get("name")
+                sid = (
+                    v.get("id")
+                    or v.get("spdx_id")
+                    or v.get("slug")
+                    or v.get("name")
+                )
                 if isinstance(sid, str):
                     out.append(_lower(sid))
         return out
     if isinstance(x, dict):
-        sid = x.get("id") or x.get("spdx_id") or x.get("slug") \
-              or x.get("name")
+        sid = x.get("id") or x.get("spdx_id") or x.get("slug") or x.get("name")
         return [_lower(sid)] if isinstance(sid, str) else []
     try:
         s = str(x)
