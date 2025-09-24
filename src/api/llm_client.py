@@ -37,76 +37,33 @@ def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
 
 
 class LLMClient:
-    """
-    Provider-aware client for JSON-style LLM answers.
-
-    Provider selection (in order):
-      1) Purdue GenAI: set GENAI_API_KEY (required), optional GENAI_API_URL
-         (defaults to https://genai.rcac.purdue.edu/api/chat/completions)
-         and GENAI_MODEL (defaults to llama3.1:latest)
-
-    All calls request JSON-only answers; caller gets parsed JSON and raw text.
-    """
-
     def __init__(self) -> None:
         self.provider: str | None = None
-
         if os.getenv("GENAI_API_KEY"):
-            self.provider = "gpt_3_5_turbo"  # Changed to use GPT-3.5 Turbo
+            self.provider = "purdue_genai"
             self._genai_url = os.getenv(
                 "GENAI_API_URL",
                 "https://genai.rcac.purdue.edu/api/chat/completions",
             )
-            self._genai_model = os.getenv(
-                "GENAI_MODEL", "gpt-3.5-turbo"
-            )  # Updated model name
-            return
+            self._genai_model = os.getenv("GENAI_MODEL", "llama3.1:latest")
+        # else remains None
 
-        self.provider = None
-
-    # ---- public ----
-
-    def ask_json(
-        self,
-        system: str,
-        prompt: str,
-        *,
-        max_tokens: int = 800,
-        temperature: float = 0.0,
-    ) -> LLMResult:
+    def ask_json(self, system: str, prompt: str, *, max_tokens: int = 800, temperature: float = 0.0) -> LLMResult:
         if not self.provider:
-            return LLMResult(
-                ok=False,
-                data=None,
-                raw_text=None,
-                error="No LLM provider configured",
-                latency_ms=0,
-            )
+            return LLMResult(False, None, None, "No LLM provider configured", 0)
 
         start = time.time()
         try:
+            raw = ""
             if self.provider == "purdue_genai":
-                raw = self._call_purdue_genai(
-                    system, prompt, max_tokens, temperature
-                )
+                raw = self._call_purdue_genai(system, prompt, max_tokens, temperature)
+            else:
+                raise RuntimeError(f"Unsupported provider: {self.provider}")
 
             parsed = _clamp_json_object(raw)
-            return LLMResult(
-                ok=True,
-                data=parsed,
-                raw_text=raw,
-                error=None,
-                latency_ms=int((time.time() - start) * 1000),
-            )
+            return LLMResult(True, parsed, raw, None, int((time.time() - start) * 1000))
         except Exception as e:
-            return LLMResult(
-                ok=False,
-                data=None,
-                raw_text=None,
-                error=str(e),
-                latency_ms=int((time.time() - start) * 1000),
-            )
-
+            return LLMResult(False, None, None, str(e), int((time.time() - start) * 1000))
     # ---- providers ----
 
     def _call_purdue_genai(

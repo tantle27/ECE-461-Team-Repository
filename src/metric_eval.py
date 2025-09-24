@@ -4,7 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List
 
-from src.metrics.base_metric import BaseMetric
+from metrics.base_metric import BaseMetric
 
 
 class MetricEval:
