@@ -393,6 +393,3 @@ def resource_id_by_key(
         (category, canonical_key),
     ).fetchone()
     return int(row["id"]) if row else None
-
-
-

@@ -24,8 +24,6 @@ from api.hf_client import (  # noqa: E402
     RepositoryNotFoundError,
     HfHubHTTPError
 )
-from api.gh_client import GHClient  # noqa: E402
-from api.hf_client import HFClient  # noqa: E402
 import handlers  # noqa: E402
 # No longer importing internal functions which might have been
 # refactored or removed
@@ -340,7 +338,7 @@ class TestCodeUrlHandler:
     def setup_method(self):
         """Setup test fixtures."""
         self.handler = CodeUrlHandler("https://github.com/owner/repo")
-        
+
     # Tests that would have required modifying handlers.py have been removed
 
     @patch('handlers.UrlRouter')
@@ -397,10 +395,10 @@ class TestCodeUrlHandler:
         with patch.object(self.handler, 'gh_client') as mock_client_instance:
             # Mock not found response
             mock_client_instance.get_repo.return_value = None
-            
+
             # Test handler gracefully handles not found repos
             result = self.handler.fetchMetaData()
-            
+
             # Should have error logs but not crash
             assert result.api_errors > 0
             assert "not found or not accessible" in result.fetch_logs[0]
@@ -412,24 +410,24 @@ class TestHandlersHelperFunctions:
     def test_safe_ext_function(self):
         """Test the _safe_ext helper function."""
         _safe_ext = handlers._safe_ext
-        
+
         # Test normal extensions
         assert _safe_ext("file.txt") == "txt"
         assert _safe_ext("script.py") == "py"
         assert _safe_ext("data.json") == "json"
-        
+
         # Test uppercase extensions
         assert _safe_ext("README.MD") == "md"
         assert _safe_ext("CONFIG.YAML") == "yaml"
-        
+
         # Test files without extensions
         assert _safe_ext("README") == ""
         assert _safe_ext("Dockerfile") == ""
-        
+
         # Test files with multiple dots
         assert _safe_ext("file.tar.gz") == "gz"
         assert _safe_ext("config.local.json") == "json"
-        
+
         # Test edge cases
         assert _safe_ext("") == ""
         assert _safe_ext(".hidden") == ""  # .hidden files have no extension
@@ -438,7 +436,7 @@ class TestHandlersHelperFunctions:
     def test_datasets_from_card_basic(self):
         """Test basic dataset extraction from card data."""
         datasets_from_card = handlers.datasets_from_card
-        
+
         card_data = {
             'datasets': ['huggingface/squad', 'microsoft/glue']
         }
@@ -449,7 +447,7 @@ class TestHandlersHelperFunctions:
     def test_datasets_from_card_with_tags(self):
         """Test dataset extraction with tags."""
         datasets_from_card = handlers.datasets_from_card
-        
+
         card_data = {}
         tags = ['dataset:huggingface/squad', 'task:qa']
         result = datasets_from_card(card_data, tags)
@@ -458,8 +456,9 @@ class TestHandlersHelperFunctions:
     def test_datasets_from_readme_basic(self):
         """Test basic dataset extraction from readme text."""
         datasets_from_readme = handlers.datasets_from_readme
-        
-        readme_text = "This model was trained on the SQuAD dataset and evaluated on GLUE."
+
+        readme_text = ("This model was trained on the SQuAD dataset "
+                       "and evaluated on GLUE.")
         result = datasets_from_readme(readme_text)
         # Should find common dataset names
         assert isinstance(result, (list, set))
@@ -467,7 +466,7 @@ class TestHandlersHelperFunctions:
     def test_datasets_from_readme_empty(self):
         """Test dataset extraction from empty readme."""
         datasets_from_readme = handlers.datasets_from_readme
-        
+
         result = datasets_from_readme("")
         assert isinstance(result, (list, set))
         assert len(result) == 0
@@ -485,7 +484,7 @@ class TestModelUrlHandlerComprehensive:
         """Test handling of linked code hydration failures."""
         mock_client = MagicMock()
         mock_hf_client_class.return_value = mock_client
-        
+
         # Mock successful model info retrieval
         mock_model_info = MagicMock()
         mock_model_info.card_data = {'license': 'mit', 'tags': ['nlp']}
@@ -498,19 +497,19 @@ class TestModelUrlHandlerComprehensive:
         mock_model_info.gated = False
         mock_model_info.private = False
         mock_model_info.hf_id = 'test-model'
-        
+
         mock_client.get_model_info.return_value = mock_model_info
         mock_client.list_files.return_value = []
         mock_client.get_github_urls.return_value = ['https://github.com/user/repo']
         mock_client.get_readme.return_value = None
-        
+
         # Mock build_code_context to fail
         with patch('handlers.build_code_context') as mock_build_code:
             mock_build_code.side_effect = Exception("Code context build failed")
-            
+
             handler = ModelUrlHandler("https://huggingface.co/test-model")
             ctx = handler.fetchMetaData()
-            
+
             # Should continue despite code context failure
             assert isinstance(ctx, RepoContext)
             assert ctx.hf_id == 'test-model'
@@ -520,7 +519,7 @@ class TestModelUrlHandlerComprehensive:
         """Test handling of linked dataset hydration failures."""
         mock_client = MagicMock()
         mock_hf_client_class.return_value = mock_client
-        
+
         # Mock successful model info
         mock_model_info = MagicMock()
         mock_model_info.card_data = {'datasets': ['squad']}
@@ -533,23 +532,24 @@ class TestModelUrlHandlerComprehensive:
         mock_model_info.gated = False
         mock_model_info.private = False
         mock_model_info.hf_id = 'test-model'
-        
+
         mock_client.get_model_info.return_value = mock_model_info
         mock_client.list_files.return_value = []
         mock_client.get_github_urls.return_value = []
         mock_client.get_readme.return_value = "Dataset: squad"
-        
+
         # Mock datasets_from_* functions to return dataset IDs
         with patch('handlers.datasets_from_card') as mock_ds_card:
             with patch('handlers.datasets_from_readme') as mock_ds_readme:
                 with patch('handlers.build_dataset_context') as mock_build_ds:
                     mock_ds_card.return_value = ['squad']
                     mock_ds_readme.return_value = []
-                    mock_build_ds.side_effect = Exception("Dataset context build failed")
-                    
+                    mock_build_ds.side_effect = Exception(
+                        "Dataset context build failed")
+
                     handler = ModelUrlHandler("https://huggingface.co/test-model")
                     ctx = handler.fetchMetaData()
-                    
+
                     # Should continue despite dataset context failure
                     assert isinstance(ctx, RepoContext)
                     assert ctx.hf_id == 'test-model'
@@ -559,7 +559,7 @@ class TestModelUrlHandlerComprehensive:
         """Test handling of dataset discovery errors."""
         mock_client = MagicMock()
         mock_hf_client_class.return_value = mock_client
-        
+
         mock_model_info = MagicMock()
         mock_model_info.card_data = {'license': 'mit'}
         mock_model_info.tags = ['nlp']
@@ -571,19 +571,19 @@ class TestModelUrlHandlerComprehensive:
         mock_model_info.gated = False
         mock_model_info.private = False
         mock_model_info.hf_id = 'test-model'
-        
+
         mock_client.get_model_info.return_value = mock_model_info
         mock_client.list_files.return_value = []
         mock_client.get_github_urls.return_value = []
         mock_client.get_readme.return_value = "Some readme"
-        
+
         # Mock datasets_from_card to raise exception
         with patch('handlers.datasets_from_card') as mock_ds_card:
             mock_ds_card.side_effect = Exception("Dataset discovery failed")
-            
+
             handler = ModelUrlHandler("https://huggingface.co/test-model")
             ctx = handler.fetchMetaData()
-            
+
             # Should handle the error gracefully
             assert isinstance(ctx, RepoContext)
             assert ctx.hf_id == 'test-model'
@@ -601,15 +601,15 @@ class TestCodeUrlHandlerComprehensive:
         """Test handling of repository not found."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         mock_client.get_repo.return_value = None  # Repo not found
-        
+
         handler = CodeUrlHandler("https://github.com/user/nonexistent")
         ctx = handler.fetchMetaData()
-        
+
         # Should return context with error logged
         assert isinstance(ctx, RepoContext)
-        not_found_logs = [log for log in ctx.fetch_logs if "not found or not accessible" in log]
+        not_found_logs = [log for log in ctx.fetch_logs if "not found or not accessible" in log]  # noqa: E501
         assert len(not_found_logs) > 0
 
     @patch('handlers.GHClient')
@@ -617,20 +617,20 @@ class TestCodeUrlHandlerComprehensive:
         """Test handling of README retrieval errors."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         # Mock successful repo info
         mock_repo_info = MagicMock()
         mock_repo_info.private = False
         mock_repo_info.default_branch = 'main'
         mock_repo_info.description = 'Test repo'
         mock_client.get_repo.return_value = mock_repo_info
-        
+
         # Mock README retrieval to fail
         mock_client.get_readme_markdown.side_effect = Exception("README fetch failed")
-        
+
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()
-        
+
         # Should handle README error gracefully
         assert ctx.api_errors >= 1
         readme_error_logs = [log for log in ctx.fetch_logs if "readme error" in log]
@@ -641,7 +641,7 @@ class TestCodeUrlHandlerComprehensive:
         """Test handling of contributors retrieval errors."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         # Mock successful repo info and README
         mock_repo_info = MagicMock()
         mock_repo_info.private = False
@@ -649,16 +649,16 @@ class TestCodeUrlHandlerComprehensive:
         mock_repo_info.description = 'Test repo'
         mock_client.get_repo.return_value = mock_repo_info
         mock_client.get_readme_markdown.return_value = "# Test README"
-        
+
         # Mock contributors retrieval to fail
-        mock_client.list_contributors.side_effect = Exception("Contributors fetch failed")
-        
+        mock_client.list_contributors.side_effect = Exception("Contributors fetch failed")  # noqa: E501
+
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()
-        
+
         # Should handle contributors error gracefully
         assert ctx.api_errors >= 1
-        contrib_error_logs = [log for log in ctx.fetch_logs if "contributors error" in log]
+        contrib_error_logs = [log for log in ctx.fetch_logs if "contributors error" in log]  # noqa: E501
         assert len(contrib_error_logs) > 0
 
     @patch('handlers.GHClient')
@@ -666,7 +666,7 @@ class TestCodeUrlHandlerComprehensive:
         """Test handling of file tree retrieval errors."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         # Mock successful repo info, README, and contributors
         mock_repo_info = MagicMock()
         mock_repo_info.private = False
@@ -677,13 +677,13 @@ class TestCodeUrlHandlerComprehensive:
         mock_client.list_contributors.return_value = [
             {'login': 'user1', 'contributions': 10}
         ]
-        
+
         # Mock file tree retrieval to fail
-        mock_client.get_repo_tree = MagicMock(side_effect=Exception("Tree fetch failed"))
-        
+        mock_client.get_repo_tree = MagicMock(side_effect=Exception("Tree fetch failed"))  # noqa: E501
+
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()
-        
+
         # Should handle file tree error gracefully
         tree_error_logs = [log for log in ctx.fetch_logs if "tree/files error" in log]
         assert len(tree_error_logs) > 0
@@ -693,7 +693,7 @@ class TestCodeUrlHandlerComprehensive:
         """Test successful file tree retrieval and processing."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         # Mock successful repo info
         mock_repo_info = MagicMock()
         mock_repo_info.private = False
@@ -702,7 +702,7 @@ class TestCodeUrlHandlerComprehensive:
         mock_client.get_repo.return_value = mock_repo_info
         mock_client.get_readme_markdown.return_value = "# Test README"
         mock_client.list_contributors.return_value = []
-        
+
         # Mock successful file tree
         mock_tree = [
             {'type': 'blob', 'path': 'src/main.py', 'size': 1024},
@@ -711,10 +711,10 @@ class TestCodeUrlHandlerComprehensive:
             {'type': 'blob', 'path': 'config.json', 'size': 256}
         ]
         mock_client.get_repo_tree.return_value = mock_tree
-        
+
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()
-        
+
         # Should have processed files correctly
         assert ctx.files is not None
         assert len(ctx.files) == 3  # Only blob types
@@ -730,7 +730,7 @@ class TestCodeUrlHandlerComprehensive:
         """Test handling of private repository attribute."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         # Test private repo
         mock_repo_info = MagicMock()
         mock_repo_info.private = True
@@ -739,10 +739,10 @@ class TestCodeUrlHandlerComprehensive:
         mock_client.get_repo.return_value = mock_repo_info
         mock_client.get_readme_markdown.return_value = None
         mock_client.list_contributors.return_value = []
-        
+
         handler = CodeUrlHandler("https://github.com/user/private-repo")
         ctx = handler.fetchMetaData()
-        
+
         # Should set private attribute correctly
         assert ctx.private is True
 
@@ -751,13 +751,13 @@ class TestCodeUrlHandlerComprehensive:
         """Test handling of general exceptions during fetch."""
         mock_client = MagicMock()
         mock_gh_client_class.return_value = mock_client
-        
+
         # Mock get_repo to raise a general exception
         mock_client.get_repo.side_effect = Exception("General GitHub error")
-        
+
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()
-        
+
         # Should handle general errors gracefully
         assert ctx.api_errors >= 1
         error_logs = [log for log in ctx.fetch_logs if "GitHub error" in log]

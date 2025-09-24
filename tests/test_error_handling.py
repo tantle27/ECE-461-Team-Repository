@@ -373,12 +373,12 @@ class TestAPIClientErrorHandling:
     def test_hf_client_connection_error(self, mock_session_class):
         """Test HF client handling of connection errors."""
         import requests
-        
+
         # Mock the HFClient class behavior
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
         mock_session.get.side_effect = requests.ConnectionError("Connection failed")
-        
+
         # Test connection error handling without direct import
         with pytest.raises(Exception):  # Should propagate connection error
             # Simulate what would happen in HFClient.get_model_info
@@ -388,11 +388,11 @@ class TestAPIClientErrorHandling:
     def test_hf_client_timeout_error(self, mock_session_class):
         """Test HF client handling of timeout errors."""
         import requests
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
         mock_session.get.side_effect = requests.Timeout("Request timed out")
-        
+
         # Test timeout error handling without direct client instantiation
         with pytest.raises(Exception):  # Should propagate timeout
             mock_session.get("https://huggingface.co/api/models/slow-model")
@@ -418,7 +418,7 @@ class TestAPIClientErrorHandling:
         mock_session.get.return_value = mock_response
 
         client = HFClient()
-        
+
         with pytest.raises(Exception):  # Should handle rate limiting
             client.get_model_info("popular-model")
 
@@ -428,21 +428,21 @@ class TestAPIClientErrorHandling:
         """Test HF client handling of invalid JSON responses."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.hf_client import HFClient
-        
+
         # Mock environment variables
         mock_getenv.return_value = None
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = "invalid json content"
         mock_response.json.side_effect = ValueError("Invalid JSON")
         mock_session.get.return_value = mock_response
-        
+
         client = HFClient()
-        
+
         # Should handle gracefully or raise appropriate error
         try:
             result = client.get_model_info("malformed-response")
@@ -458,21 +458,21 @@ class TestAPIClientErrorHandling:
         """Test GitHub client handling of 404 repository not found."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.gh_client import GHClient
-        
+
         # Mock environment variables
         mock_getenv.return_value = None
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.json.return_value = {"message": "Not Found"}
         mock_response.raise_for_status.side_effect = Exception("Not found")
         mock_session.get.return_value = mock_response
-        
+
         client = GHClient()
-        
+
         result = client.get_repo("nonexistent", "repository")
         assert result is None  # Should return None for not found
 
@@ -482,37 +482,37 @@ class TestAPIClientErrorHandling:
         """Test GitHub client handling of authentication errors."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.gh_client import GHClient
-        
+
         # Mock environment variables
         mock_getenv.return_value = "invalid-token"
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 401
         mock_response.json.return_value = {"message": "Bad credentials"}
         mock_response.raise_for_status.side_effect = Exception("Unauthorized")
         mock_session.get.return_value = mock_response
-        
+
         client = GHClient()
-        
+
         with pytest.raises(Exception):  # Should raise for auth errors
             client.get_repo("private", "repository")
 
-    @patch('api.gh_client.requests.Session')  
+    @patch('api.gh_client.requests.Session')
     @patch('api.gh_client.os.getenv')
     def test_gh_client_api_limit_exceeded(self, mock_getenv, mock_session_class):
         """Test GitHub client handling of API rate limit exceeded."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.gh_client import GHClient
-        
+
         # Mock environment variables
         mock_getenv.return_value = None
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 403
         mock_response.headers = {
@@ -524,12 +524,12 @@ class TestAPIClientErrorHandling:
             "message": "API rate limit exceeded"
         }
         mock_session.get.return_value = mock_response
-        
+
         client = GHClient()
-        
+
         # The test setup mocks session.get to return 403 directly,
         # but the GitHub client's internal _get_json method would handle this
-        # and either return data or raise an exception. 
+        # and either return data or raise an exception.
         # For this test, we'll just verify the client was created
         assert client is not None
 
@@ -539,12 +539,12 @@ class TestAPIClientErrorHandling:
         """Test HF client handling of API initialization failures."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.hf_client import HFClient
-        
+
         # Mock environment variables
         mock_getenv.return_value = "test-token"
-        
+
         mock_hf_api.side_effect = Exception("API initialization failed")
-        
+
         # Should handle initialization failure gracefully
         try:
             client = HFClient()
@@ -557,11 +557,11 @@ class TestAPIClientErrorHandling:
     def test_hf_client_retry_logic_exhaustion(self):
         """Test HF client retry logic when all attempts are exhausted."""
         from api.hf_client import _retry
-        
+
         # Mock operation that always fails
         def failing_operation():
             raise ConnectionError("Persistent failure")
-        
+
         # Should raise the final exception after exhausting retries
         with pytest.raises(ConnectionError):
             _retry(failing_operation, attempts=3)
@@ -571,16 +571,16 @@ class TestAPIClientErrorHandling:
         # Add src to path
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.hf_client import _retry
-        
+
         call_count = 0
-        
+
         def eventually_succeeding_operation():
             nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise ConnectionError("Temporary failure")
             return "success"
-        
+
         # Should succeed after retries
         result = _retry(eventually_succeeding_operation, attempts=5)
         assert result == "success"
@@ -592,25 +592,25 @@ class TestAPIClientErrorHandling:
         """Test LLM client handling of service unavailable errors."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.llm_client import LLMClient
-        
+
         # Mock environment variables
         def mock_getenv_side_effect(key, default=None):
             if key == "GENAI_API_KEY":
                 return "test-key"
             return default
-        
+
         mock_getenv.side_effect = mock_getenv_side_effect
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 503
         mock_response.text = "Service Unavailable"
         mock_session.post.return_value = mock_response
-        
+
         client = LLMClient()
-        
+
         result = client.ask_json("system", "prompt", max_tokens=100)
         # Should indicate failure
         assert not result.ok or result.error is not None
@@ -621,27 +621,27 @@ class TestAPIClientErrorHandling:
         """Test LLM client handling of malformed JSON responses."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.llm_client import LLMClient
-        
-        # Mock environment variables  
+
+        # Mock environment variables
         def mock_getenv_side_effect(key, default=None):
             if key == "GENAI_API_KEY":
                 return "test-key"
             return default
-        
+
         mock_getenv.side_effect = mock_getenv_side_effect
-        
+
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "choices": [{"message": {"content": "invalid json content"}}]
         }
         mock_session.post.return_value = mock_response
-        
+
         client = LLMClient()
-        
+
         # Test that client handles malformed JSON gracefully
         assert client is not None
 
@@ -652,17 +652,17 @@ class TestAPIClientBasicFunctionality:
     def test_api_client_timeout_simulation(self):
         """Test timeout handling simulation."""
         import time
-        
+
         def simulate_api_call_with_timeout(timeout_seconds=0.01):
             """Simulate an API call that might timeout."""
             start_time = time.time()
             time.sleep(timeout_seconds)
             end_time = time.time()
-            
+
             if end_time - start_time > timeout_seconds * 2:
                 raise TimeoutError("Request timed out")
             return "success"
-        
+
         # Test successful call
         result = simulate_api_call_with_timeout(0.001)
         assert result == "success"
@@ -675,7 +675,7 @@ class TestAPIClientBasicFunctionality:
             "not_found": ["404", "not found", "does not exist"],
             "server_error": ["500", "503", "internal server error"]
         }
-        
+
         def categorize_error(error_message):
             """Categorize error based on message content."""
             error_lower = error_message.lower()
@@ -683,7 +683,7 @@ class TestAPIClientBasicFunctionality:
                 if any(keyword in error_lower for keyword in keywords):
                     return category
             return "unknown"
-        
+
         # Test error categorization
         assert categorize_error("429 Rate limit exceeded") == "rate_limit"
         assert categorize_error("401 Unauthorized access") == "authentication"
@@ -695,15 +695,15 @@ class TestAPIClientBasicFunctionality:
         """Test retry pattern used in API clients."""
         attempt_count = 0
         max_attempts = 3
-        
+
         def simulate_api_call_with_retry():
             nonlocal attempt_count
             attempt_count += 1
-            
+
             if attempt_count < max_attempts:
                 raise ConnectionError(f"Attempt {attempt_count} failed")
             return f"Success after {attempt_count} attempts"
-        
+
         # Simulate retry loop
         for attempt in range(max_attempts):
             try:
@@ -713,7 +713,7 @@ class TestAPIClientBasicFunctionality:
                 if attempt == max_attempts - 1:
                     raise
                 continue
-        
+
         assert result == "Success after 3 attempts"
         assert attempt_count == 3
 
@@ -721,24 +721,24 @@ class TestAPIClientBasicFunctionality:
         """Test that error context is preserved through handlers."""
         def inner_function():
             raise ValueError("Inner validation failed")
-        
+
         def outer_function():
             try:
                 inner_function()
             except ValueError as e:
                 raise RuntimeError("Outer processing failed") from e
-        
+
         # Test exception chaining
         with pytest.raises(RuntimeError) as exc_info:
             outer_function()
-        
+
         assert "Outer processing failed" in str(exc_info.value)
         assert exc_info.value.__cause__ is not None
         assert "Inner validation failed" in str(exc_info.value.__cause__)
 
     def test_api_client_initialization_patterns(self):
         """Test common API client initialization patterns."""
-        
+
         # Test environment variable handling
         def mock_get_env_with_fallbacks(primary, *fallbacks):
             """Mock function to test environment variable fallbacks."""
@@ -747,21 +747,21 @@ class TestAPIClientBasicFunctionality:
                 "FALLBACK_TOKEN": "fallback_value",
                 "ANOTHER_FALLBACK": "another_value"
             }
-            
+
             for var in [primary] + list(fallbacks):
                 if env_vars.get(var):
                     return env_vars[var]
             return None
-        
+
         # Test primary token not available, fallback works
-        token = mock_get_env_with_fallbacks("PRIMARY_TOKEN", "FALLBACK_TOKEN", "ANOTHER_FALLBACK")
+        token = mock_get_env_with_fallbacks("PRIMARY_TOKEN", "FALLBACK_TOKEN", "ANOTHER_FALLBACK")  # noqa: E501
         assert token == "fallback_value"
-        
+
         # Test no tokens available
-        
+
         def mock_get_empty_env(primary, *fallbacks):
             return None
-        
+
         token = mock_get_empty_env("PRIMARY_TOKEN", "FALLBACK_TOKEN")
         assert token is None
 
@@ -776,7 +776,7 @@ class TestErrorHandlingPatterns:
             "fallback_service": True,    # Working
             "cache_service": True        # Working
         }
-        
+
         def get_data_with_fallback():
             """Simulate data retrieval with fallback services."""
             if services_status["primary_service"]:
@@ -787,7 +787,7 @@ class TestErrorHandlingPatterns:
                 return "data_from_cache"
             else:
                 raise Exception("All services unavailable")
-        
+
         result = get_data_with_fallback()
         assert result == "data_from_fallback"
 
@@ -795,14 +795,14 @@ class TestErrorHandlingPatterns:
         """Test error aggregation across multiple operations."""
         errors = []
         operations = ["operation_1", "operation_2", "operation_3"]
-        
+
         def perform_operation(op_name):
             """Simulate operation that might fail."""
             if op_name == "operation_2":
                 errors.append(f"{op_name} failed: validation error")
                 return None
             return f"{op_name} completed"
-        
+
         results = []
         for op in operations:
             try:
@@ -811,7 +811,7 @@ class TestErrorHandlingPatterns:
                     results.append(result)
             except Exception as e:
                 errors.append(f"{op} failed: {e}")
-        
+
         # Verify error aggregation
         assert len(errors) == 1
         assert "operation_2 failed" in errors[0]
@@ -826,7 +826,7 @@ class TestErrorHandlingPatterns:
                 self.state = "closed"  # closed, open, half-open
                 self.last_failure_time = None
                 self.recovery_timeout = recovery_timeout
-            
+
             def call(self, func):
                 if self.state == "open":
                     # Check if we should try recovery
@@ -835,7 +835,7 @@ class TestErrorHandlingPatterns:
                         self.state = "half-open"
                     else:
                         raise Exception("Circuit breaker is open")
-                
+
                 try:
                     result = func()
                     if self.state == "half-open":
@@ -849,21 +849,21 @@ class TestErrorHandlingPatterns:
                         import time
                         self.last_failure_time = time.time()
                     raise e
-        
+
         # Test circuit breaker
         cb = SimpleCircuitBreaker(failure_threshold=2)
-        
+
         def failing_service():
             raise ConnectionError("Service unavailable")
-        
+
         # Test failures leading to open circuit
         for i in range(2):
             with pytest.raises(ConnectionError):
                 cb.call(failing_service)
-        
+
         # Circuit should now be open
         assert cb.state == "open"
-        
+
         # Further calls should fail immediately
         with pytest.raises(Exception, match="Circuit breaker is open"):
             cb.call(failing_service)
@@ -876,21 +876,21 @@ class TestErrorHandlingPatterns:
         mock_hf_client = MagicMock()
         mock_hf_client.get_model_info.side_effect = ConnectionError("HF down")
         mock_hf_client_class.return_value = mock_hf_client
-        
+
         mock_gh_client = MagicMock()
         mock_gh_client.get_repo.side_effect = Exception("GitHub down")
         mock_gh_client_class.return_value = mock_gh_client
-        
+
         successful_operations = 0
         failed_operations = 0
-        
+
         # Simulate processing multiple items with fallback logic
         operations = [
             ("hf", lambda: mock_hf_client.get_model_info("model1")),
             ("gh", lambda: mock_gh_client.get_repo("owner", "repo")),
             ("local", lambda: "local_fallback_success"),
         ]
-        
+
         for op_name, operation in operations:
             try:
                 result = operation()
@@ -898,7 +898,7 @@ class TestErrorHandlingPatterns:
                     successful_operations += 1
             except Exception:
                 failed_operations += 1
-        
+
         # Should have partial success
         assert failed_operations == 2  # HF and GitHub failed
         assert successful_operations == 1  # Local fallback succeeded

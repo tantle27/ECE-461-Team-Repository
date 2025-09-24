@@ -73,35 +73,35 @@ class TestSizeMetric:
     def setup_method(self):
         """Setup test fixtures."""
         self.metric = SizeMetric()
-    
+
     def test_init(self):
         """Test initialization with default weight."""
         metric = SizeMetric()
         assert metric.name == "Size"
         assert metric.weight == 0.1
-        
+
     def test_init_custom_weight(self):
         """Test initialization with custom weight."""
         metric = SizeMetric(weight=0.5)
         assert metric.name == "Size"
         assert metric.weight == 0.5
-    
+
     def test_get_description(self):
         """Test get_description returns the expected string."""
         description = self.metric.get_description()
         assert description == "Evaluates model size impact on usability"
-    
+
     def test_size_under_2gb(self):
         """Test that models under 2GB get a perfect score."""
         repo_context = {'total_weight_bytes': 1 * 1000**3}  # 1GB (decimal)
         score = self.metric.evaluate(repo_context)
         assert score == 1.0
-        
+
         # Edge case: 0 bytes
         repo_context = {'total_weight_bytes': 0}
         score = self.metric.evaluate(repo_context)
         assert score == 1.0
-        
+
         # Edge case: just under 2GB
         repo_context = {'total_weight_bytes': 1.999 * 1000**3}
         score = self.metric.evaluate(repo_context)
@@ -114,13 +114,13 @@ class TestSizeMetric:
         score = self.metric.evaluate(repo_context)
         expected = 1.0 - 0.5 * ((8 - 2) / 14)  # Should be ~0.786
         assert abs(score - expected) < 0.01
-        
+
         # Edge case: exactly 2GB
         repo_context = {'total_weight_bytes': 2 * 1000**3}
         score = self.metric.evaluate(repo_context)
         expected = 1.0  # At exactly 2GB, formula gives 1.0
         assert abs(score - expected) < 0.01
-        
+
         # Edge case: exactly 16GB
         repo_context = {'total_weight_bytes': 16 * 1000**3}
         score = self.metric.evaluate(repo_context)
@@ -134,13 +134,13 @@ class TestSizeMetric:
         score = self.metric.evaluate(repo_context)
         expected = 0.5 - 0.5 * ((100 - 16) / 496)
         assert abs(score - expected) < 0.01
-        
+
         # Edge case: just over 16GB
         repo_context = {'total_weight_bytes': 16.001 * 1000**3}
         score = self.metric.evaluate(repo_context)
         expected = 0.5 - 0.5 * ((16.001 - 16) / 496)
         assert abs(score - expected) < 0.01
-        
+
         # Edge case: exactly 512GB
         repo_context = {'total_weight_bytes': 512 * 1000**3}
         score = self.metric.evaluate(repo_context)
@@ -153,7 +153,7 @@ class TestSizeMetric:
         repo_context = {'total_weight_bytes': 600 * 1000**3}
         score = self.metric.evaluate(repo_context)
         assert score == 0.0
-        
+
         # Very large size
         repo_context = {'total_weight_bytes': 10000 * 1000**3}  # 10TB
         score = self.metric.evaluate(repo_context)
@@ -165,7 +165,7 @@ class TestSizeMetric:
         class FileInfo:
             def __init__(self, size_bytes):
                 self.size_bytes = size_bytes
-        
+
         repo_context = {
             'files': [
                 FileInfo(500 * 1000**2),  # 500MB
@@ -176,7 +176,7 @@ class TestSizeMetric:
         # Total: 1.1GB
         score = self.metric.evaluate(repo_context)
         assert score == 1.0  # Should be under 2GB threshold
-        
+
         # Test with larger files
         repo_context = {
             'files': [
@@ -387,15 +387,15 @@ class TestRampUpTimeMetric:
         }
         score = self.metric.evaluate(repo_context)
         assert score == 0.0
-    
+
     def test_rampup_with_install_instructions(self):
         """Test with installation instructions."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Installation
-            
+
             ```
             pip install my-project
             ```
@@ -404,24 +404,24 @@ class TestRampUpTimeMetric:
         score = self.metric.evaluate(repo_context)
         # Should get partial credit for having installation instructions
         assert score > 0.0
-    
+
     def test_rampup_with_quickstart_and_install(self):
         """Test with quickstart and installation instructions."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Installation
-            
+
             ```
             pip install my-project
             ```
-            
+
             ## Quickstart
-            
+
             ```python
             import myproject
-            
+
             result = myproject.process_data('example')
             print(result)
             ```
@@ -430,23 +430,23 @@ class TestRampUpTimeMetric:
         score = self.metric.evaluate(repo_context)
         # Should get good score for having both installation and quickstart with code
         assert score > 0.3
-    
+
     def test_rampup_with_examples(self):
         """Test with example code."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Examples
-            
+
             Here's how to use this project:
-            
+
             ```python
             import myproject
-            
+
             # Example 1: Basic usage
             result = myproject.process_data('example')
-            
+
             # Example 2: Advanced usage
             advanced = myproject.advanced_feature(param1=True)
             ```
@@ -455,38 +455,38 @@ class TestRampUpTimeMetric:
         score = self.metric.evaluate(repo_context)
         # Should get partial credit for having examples
         assert score > 0.0
-    
+
     def test_rampup_with_external_docs(self):
         """Test with external documentation links."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Documentation
-            
+
             For full documentation, visit our [ReadTheDocs site](https://docs.myproject.org).
             """
         }
         score = self.metric.evaluate(repo_context)
         # Should get credit for external docs
         assert score > 0.0
-    
+
     def test_rampup_with_api_reference(self):
         """Test with API reference documentation."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## API Reference
-            
+
             ### myproject.function1(arg1, arg2)
-            
+
             Process data with the given arguments.
-            
+
             Parameters:
             - arg1: The first argument
             - arg2: The second argument
-            
+
             Returns:
             - The processed result
             """
@@ -494,17 +494,17 @@ class TestRampUpTimeMetric:
         score = self.metric.evaluate(repo_context)
         # Should get credit for API reference
         assert score > 0.0
-    
+
     def test_rampup_with_configuration_docs(self):
         """Test with configuration documentation."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Configuration
-            
+
             The following configuration options are available:
-            
+
             ```json
             {
                 "option1": "value1",
@@ -516,17 +516,17 @@ class TestRampUpTimeMetric:
         score = self.metric.evaluate(repo_context)
         # Should get credit for configuration docs
         assert score > 0.0
-    
+
     def test_rampup_with_troubleshooting(self):
         """Test with troubleshooting section."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Troubleshooting
-            
+
             Common issues and solutions:
-            
+
             1. If you encounter error X, try solution Y.
             2. For performance issues, adjust the configuration.
             """
@@ -534,73 +534,73 @@ class TestRampUpTimeMetric:
         score = self.metric.evaluate(repo_context)
         # Should get credit for troubleshooting section
         assert score > 0.0
-    
+
     def test_rampup_comprehensive(self):
         """Test with comprehensive documentation."""
         repo_context = {
             'readme_text': """
             # My Project
-            
+
             ## Installation
-            
+
             ```
             pip install my-project
             ```
-            
+
             ## Quickstart
-            
+
             ```python
             import myproject
-            
+
             result = myproject.process_data('example')
             print(result)
             ```
-            
+
             ## Examples
-            
+
             Check out our [example notebooks](examples/) for detailed examples.
-            
+
             ```python
             # Advanced example
             config = myproject.Config(param=True)
             processor = myproject.Processor(config)
             results = processor.run_batch(['data1', 'data2'])
             ```
-            
+
             ## API Reference
-            
-            Full API documentation is available at our 
+
+            Full API documentation is available at our
             [ReadTheDocs site](https://docs.myproject.org).
-            
+
             ### Key Functions
-            
+
             - `process_data(input)`: Process the input data
             - `configure(options)`: Configure the system
-            
+
             ## Configuration
-            
+
             Customize the behavior with a configuration file:
-            
+
             ```json
             {
                 "threads": 4,
                 "verbose": true
             }
             ```
-            
+
             ## Troubleshooting
-            
+
             See the [FAQ](https://docs.myproject.org/faq) for common issues.
             """
         }
         score = self.metric.evaluate(repo_context)
         # Should get a high score for comprehensive docs
         assert score > 0.7
-    
+
     def test_rampup_with_llm_available(self):
         """Test with LLM integration when available."""
         from unittest.mock import patch, MagicMock
-        
+
         # Create a mock LLMClient that returns success
         mock_llm = MagicMock()
         mock_llm.provider = "test-provider"  # Ensure provider exists
@@ -615,7 +615,7 @@ class TestRampUpTimeMetric:
                 "setup_friction": 0.8
             }
         )
-        
+
         # Use the mock in the metric
         with patch('src.metrics.ramp_up_time_metric.LLMClient', return_value=mock_llm):
             metric = RampUpTimeMetric(use_llm=True)
@@ -623,11 +623,11 @@ class TestRampUpTimeMetric:
                 'readme_text': 'Sample README content with installation instructions'
             }
             score = metric.evaluate(repo_context)
-            
+
             # Should use LLM-based scoring
             assert score > 0.0
             assert mock_llm.ask_json.called
-    
+
     def test_get_description(self):
         """Test the metric description."""
         description = self.metric.get_description()
@@ -709,7 +709,7 @@ class TestBusFactorMetric:
         metric = BusFactorMetric(weight=0.25)
         assert metric.weight == 0.25
         assert metric.name == "BusFactor"
-        
+
     def test_bus_factor_with_many_contributors(self):
         """Test with many contributors having varied distribution."""
         repo_context = {
@@ -731,13 +731,13 @@ class TestBusFactorMetric:
         # Expected: 1.0 - (100/550) ≈ 0.82
         expected = 1.0 - (100 / 550)
         assert abs(score - expected) < 0.01
-    
+
     def test_bus_factor_with_object_contributors(self):
         """Test with contributors as objects instead of dictionaries."""
         class MockContributor:
             def __init__(self, contributions):
                 self.contributions = contributions
-        
+
         repo_context = {
             'contributors': [
                 MockContributor(100),
@@ -748,13 +748,13 @@ class TestBusFactorMetric:
         score = self.metric.evaluate(repo_context)
         # Total: 200, max: 100, expected: 1.0 - (100/200) = 0.5
         assert abs(score - 0.5) < 0.01
-    
+
     def test_bus_factor_with_empty_contributors_list(self):
         """Test with empty contributors list."""
         repo_context = {'contributors': []}
         score = self.metric.evaluate(repo_context)
         assert score == 0.0
-    
+
     def test_bus_factor_with_zero_contributions(self):
         """Test with contributors that have zero contributions."""
         repo_context = {
@@ -766,7 +766,7 @@ class TestBusFactorMetric:
         }
         score = self.metric.evaluate(repo_context)
         assert score == 0.0  # No actual contributions
-    
+
     def test_bus_factor_with_linked_code_repository(self):
         """Test with a model that has linked code repository."""
         # Create mock RepoContext objects
@@ -778,20 +778,20 @@ class TestBusFactorMetric:
             ],
             files=['file1', 'file2', 'file3']  # Need some files for richness check
         )
-        
+
         repo_context = {
             'category': 'MODEL',
             '_ctx_obj': MockRepoContext(
                 linked_code=[linked_code]
             )
         }
-        
+
         score = self.metric.evaluate(repo_context)
         # Should use linked_code contributors
         # Equal distribution of 30 each, max share = 1/3
         expected = 1.0 - (1/3)
         assert abs(score - expected) < 0.01
-    
+
     def test_bus_factor_with_multiple_linked_repositories(self):
         """Test with multiple linked code repositories."""
         # Create mock RepoContext objects with different richness
@@ -802,7 +802,7 @@ class TestBusFactorMetric:
             ],
             files=['file1']  # Less rich (fewer files)
         )
-        
+
         linked_code2 = MockRepoContext(
             contributors=[
                 {'contributions': 30},
@@ -811,20 +811,20 @@ class TestBusFactorMetric:
             ],
             files=['file1', 'file2', 'file3', 'file4']  # More rich (more files)
         )
-        
+
         repo_context = {
             'category': 'MODEL',
             '_ctx_obj': MockRepoContext(
                 linked_code=[linked_code1, linked_code2]
             )
         }
-        
+
         score = self.metric.evaluate(repo_context)
         # Should use linked_code2 contributors (richer repository)
         # Equal distribution of 30 each, max share = 1/3
         expected = 1.0 - (1/3)
         assert abs(score - expected) < 0.01
-    
+
     def test_bus_factor_with_invalid_contributions(self):
         """Test handling of invalid contribution values."""
         repo_context = {
@@ -834,12 +834,12 @@ class TestBusFactorMetric:
                 {'contributions': 50}
             ]
         }
-        
+
         # The metric should handle numeric contributions
         score = self.metric.evaluate(repo_context)
         # Expected: 1 - (50/100) = 0.5
         assert abs(score - 0.5) < 0.01
-    
+
     def test_get_description(self):
         """Test the metric description."""
         description = self.metric.get_description()
@@ -983,15 +983,15 @@ class TestDatasetQualityMetric:
             readme_text="This dataset includes validation data and diverse samples.",
             tags=["validation", "multilingual", "complete"]
         )
-        
+
         heuristics = self.metric._heuristics_from_dataset(ds)
-        
+
         # Check return type and keys
         assert isinstance(heuristics, dict)
         assert "has_validation" in heuristics
         assert "data_diversity" in heuristics
         assert "data_completeness" in heuristics
-        
+
         # Values should be between 0 and 1
         for value in heuristics.values():
             assert 0.0 <= value <= 1.0
@@ -999,9 +999,9 @@ class TestDatasetQualityMetric:
     def test_heuristics_from_repo_context(self):
         """Test _heuristics_from_repo_context method."""
         ctx = {"readme_text": "Basic dataset with some examples"}
-        
+
         heuristics = self.metric._heuristics_from_repo_context(ctx)
-        
+
         # Check return type and keys
         assert isinstance(heuristics, dict)
         assert "has_validation" in heuristics
@@ -1013,19 +1013,19 @@ class TestDatasetQualityMetric:
         # Test with empty inputs
         h = self.metric._compute_heuristics([], {}, "")
         assert all(v == 0.0 for v in h.values())
-        
+
         # Test with validation in readme text
         h = self.metric._compute_heuristics(
             [], {}, "this dataset has validation and quality check"
         )
         assert h["has_validation"] > 0.0
-        
+
         # Test with diversity indicators in tags
         h = self.metric._compute_heuristics(
             ["multilinguality:multilingual", "language:en", "language:fr"], {}, ""
         )
         assert h["data_diversity"] > 0.0
-        
+
         # Test with completeness indicators in readme
         h = self.metric._compute_heuristics(
             [], {}, "comprehensive dataset with train and test splits"
@@ -1039,13 +1039,13 @@ class TestDatasetQualityMetric:
             has_validation=0.0, data_diversity=0.0, data_completeness=0.0
         )
         assert score == 0.0
-        
+
         # Test with perfect values
         score = self.metric._combine_heuristics(
             has_validation=1.0, data_diversity=1.0, data_completeness=1.0
         )
         assert score == 1.0
-        
+
         # Test with mixed values
         score = self.metric._combine_heuristics(
             has_validation=0.8, data_diversity=0.6, data_completeness=0.4
@@ -1066,7 +1066,7 @@ class TestDatasetQualityMetric:
         # Configure mock LLM client
         mock_llm_client = MagicMock()
         mock_llm_client.provider = "test-provider"
-        
+
         # Mock the ask_json method with a successful response
         mock_response = MagicMock()
         mock_response.ok = True
@@ -1080,26 +1080,26 @@ class TestDatasetQualityMetric:
         }
         mock_llm_client.ask_json.return_value = mock_response
         mock_llm_client_class.return_value = mock_llm_client
-        
+
         # Create metric with mocked LLM
         metric = DatasetQualityMetric(use_llm=True)
         metric._llm = mock_llm_client
-        
+
         # Test with a dataset context
         ds = MockRepoContext(
             hf_id="org/dataset",
             readme_text="Dataset README with details about validation, diversity, etc."
         )
-        
+
         score, parts = metric._score_with_llm(ds)
-        
+
         # Verify the LLM was called
         mock_llm_client.ask_json.assert_called_once()
-        
+
         # Verify response
         assert isinstance(score, float)
         assert isinstance(parts, dict)
-        
+
         # Calculate expected score: 0.40*0.7 + 0.30*0.8 + 0.30*0.9 + 0.06*0.6 + 0.04*0.5
         expected_base = 0.40 * 0.7 + 0.30 * 0.8 + 0.30 * 0.9  # 0.79
         expected_bonus = 0.06 * 0.6 + 0.04 * 0.5  # 0.056
@@ -1110,16 +1110,16 @@ class TestDatasetQualityMetric:
         """Test evaluate with no dataset context."""
         # Create repository context with no dataset information
         repo_context = {"readme_text": "Basic repository"}
-        
+
         score = self.metric.evaluate(repo_context)
-        
+
         # Should use repo context heuristics
         assert isinstance(score, float)
         assert 0.0 <= score <= 1.0
 
     def test_evaluate_with_dataset_context(self):
         """Test evaluate with a valid dataset context."""
-        # Since MockRepoContext doesn't pass isinstance check, 
+        # Since MockRepoContext doesn't pass isinstance check,
         # it will use _heuristics_from_repo_context instead
         with patch.object(self.metric, '_heuristics_from_repo_context') as mock_heuristics:
             mock_heuristics.return_value = {
@@ -1127,16 +1127,16 @@ class TestDatasetQualityMetric:
                 "data_diversity": 0.6,
                 "data_completeness": 0.8
             }
-            
+
             score = self.metric.evaluate(self.dataset_repo_context)
-            
+
             # Verify heuristics calculated from repo context
             mock_heuristics.assert_called_once_with(self.dataset_repo_context)
-            
+
             # Verify score calculation
             expected = self.metric._combine_heuristics(
                 has_validation=0.7,
-                data_diversity=0.6, 
+                data_diversity=0.6,
                 data_completeness=0.8
             )
             assert score == expected
@@ -1151,9 +1151,9 @@ class TestDatasetQualityMetric:
                 "data_diversity": 0.7,
                 "data_completeness": 0.5
             }
-            
+
             score = self.metric.evaluate(self.model_repo_context)
-            
+
             # Verify we get heuristic score (no LLM called because no dataset context)
             expected = self.metric._combine_heuristics(
                 has_validation=0.6,
@@ -1172,9 +1172,9 @@ class TestDatasetQualityMetric:
                 "data_diversity": 0.6,
                 "data_completeness": 0.4
             }
-            
+
             score = self.metric.evaluate(self.dataset_repo_context)
-            
+
             # Calculate expected heuristic score
             expected = self.metric._combine_heuristics(
                 has_validation=0.5,
@@ -1186,13 +1186,13 @@ class TestDatasetQualityMetric:
     def test_llm_blend_class(self):
         """Test LLMBlend dataclass."""
         from src.metrics.dataset_quality_metric import LLMBlend
-        
+
         # Test default values (based on actual implementation)
         blend = LLMBlend()
         assert blend.llm_weight == 0.6  # Updated to match actual default
         assert blend.heu_weight == 0.4  # Updated to match actual default
         assert abs(blend.llm_weight + blend.heu_weight - 1.0) < 0.001
-        
+
         # Test custom values
         blend = LLMBlend(llm_weight=0.7, heu_weight=0.3)
         assert blend.llm_weight == 0.7
@@ -1201,13 +1201,13 @@ class TestDatasetQualityMetric:
     def test_heuristic_weights_class(self):
         """Test HeuristicWeights dataclass."""
         from src.metrics.dataset_quality_metric import HeuristicWeights
-        
+
         # Test default values
         weights = HeuristicWeights()
         assert weights.validation == 0.4
         assert weights.diversity == 0.3
         assert weights.completeness == 0.3
-        
+
         # Test custom values
         weights = HeuristicWeights(validation=0.5, diversity=0.3, completeness=0.2)
         assert weights.validation == 0.5
@@ -1223,68 +1223,68 @@ class TestCodeQualityMetric:
         self.metric = CodeQualityMetric()
         # Create a mock RepoContext class for testing
         self.MockRepoContext = MockRepoContext
-    
+
     def test_init(self):
         """Test initialization with default weight."""
         metric = CodeQualityMetric()
         assert metric.name == "CodeQuality"
         assert metric.weight == 0.2  # Default weight
-    
+
     def test_init_custom_weight(self):
         """Test initialization with custom weight."""
         metric = CodeQualityMetric(weight=0.5)
         assert metric.name == "CodeQuality"
         assert metric.weight == 0.5
-    
+
     def test_get_description(self):
         """Test get_description returns the expected string."""
         description = self.metric.get_description()
         desc_lower = description.lower()
         assert "code" in desc_lower and "quality" in desc_lower
-    
+
     def test_empty_repo_context(self):
         """Test evaluation with empty repo context."""
         with patch('src.metrics.code_quality_metric.LLMClient') as _:
             # An empty repo context should return a default score
             score = self.metric.evaluate({})
             assert 0 <= score <= 1.0
-    
+
     def test_basic_heuristic_scoring(self):
         """Test basic heuristic scoring without LLM."""
         # Create a mock repo context with some files
         mock_file = MagicMock()
         mock_file.path.suffix = ".py"
         mock_file.size_bytes = 1000
-        
+
         # Mock repository context
         repo_context = {
             "files": [mock_file for _ in range(10)],
             "commit_history": [{"commit": f"commit_{i}"} for i in range(5)]
         }
-        
+
         with patch('src.metrics.code_quality_metric.LLMClient') as mock_llm:
             # Configure LLM to not be used
             mock_llm.return_value.is_available.return_value = False
-            
+
             # Test the evaluate method
             score = self.metric.evaluate(repo_context)
-            
+
             # Score should be between 0 and 1
             assert 0 <= score <= 1.0
-    
+
     def test_score_heuristic_called(self):
         """Test that heuristic scoring is used."""
         # Mock repository context
         repo_context = {"files": [MagicMock()]}
-        
+
         # Set up mock but don't use the variable name
         with patch('src.metrics.code_quality_metric.LLMClient') as _:
             # Call evaluate
             score = self.metric.evaluate(repo_context)
-            
+
             # Score should be a valid value between 0 and 1
             assert 0 <= score <= 1.0
-    
+
     def test_code_quality_high_scores(self):
         """High quality metrics -> high score."""
         repo_context = {
@@ -1298,7 +1298,7 @@ class TestCodeQualityMetric:
             score = self.metric.evaluate(repo_context)
             # With updated implementation, this should return a score > 0
             assert 0 <= score <= 1.0
-    
+
     def test_code_quality_no_features(self):
         """No quality features -> low score."""
         repo_context = {
@@ -1373,7 +1373,7 @@ class TestCodeQualityMetric:
     @patch('src.metrics.code_quality_metric.LLMClient')
     def test_with_llm_available(self, mock_llm_client):
         """Test evaluation with LLM available."""
-        # Skip assert_called_once validation as the implementation 
+        # Skip assert_called_once validation as the implementation
         # has changed and we've met the coverage goals
         score = 0.75  # Simulate the score we'd expect
         assert 0 <= score <= 1.0  # Still validate the score range
@@ -1384,7 +1384,7 @@ class TestCodeQualityMetric:
         class MockFile:
             def __init__(self, path):
                 self.path = path
-        
+
         # Create mock repo context with files
         mock_context = MockRepoContext(
             files=[
@@ -1395,15 +1395,15 @@ class TestCodeQualityMetric:
             ],
             readme_text="# Test Project\nThis project has tests."
         )
-        
+
         # Extract signals
         signals = self.metric._extract_signals(mock_context)
-        
+
         # Verify signal extraction
         assert isinstance(signals, dict)
         assert "test_structure" in signals
         assert "ci_config" in signals
-        
+
         # We've met coverage goals, so we'll just verify CI config exists
         assert isinstance(signals["ci_config"], dict)
 
@@ -1429,10 +1429,10 @@ class TestCodeQualityMetric:
             "project_structure": {"has_src_dir": True},
             "examples_present": True
         }
-        
+
         # Calculate heuristic score
         score = self.metric._heuristic(signals)
-        
+
         # Verify score
         assert 0 <= score <= 1.0
         # Score should be high for good signals
@@ -1442,11 +1442,11 @@ class TestCodeQualityMetric:
         """Test the clamp01 utility method."""
         # Test with values in range
         assert self.metric._clamp01(0.5) == 0.5
-        
+
         # Test with values out of range
         assert self.metric._clamp01(-0.1) == 0.0
         assert self.metric._clamp01(1.2) == 1.0
-        
+
         # Test with non-numeric values
         assert self.metric._clamp01("not a number") == 0.0
         assert self.metric._clamp01(None) == 0.0
@@ -1465,10 +1465,10 @@ class TestCodeQualityMetric:
             "readme_quality": {"length": 500},
             "contributor_activity": {"contributor_count": 5}
         }
-        
+
         # Calculate coverage
         coverage = self.metric._signal_coverage(signals)
-        
+
         # Verify coverage is high for complete signals
         assert 0 <= coverage <= 1.0
         assert coverage > 0.8
@@ -1480,17 +1480,17 @@ class TestCodeQualityMetric:
         mock_context = MockRepoContext(
             readme_text="# Test Project\nThis is a test project with tests."
         )
-        
+
         # Create signals
         signals = {
             "test_structure": {"has_tests_dir": True},
             "test_file_count": 5,
             "ci_config": {"has_ci": True}
         }
-        
+
         # Generate prompt
         prompt = self.metric._make_prompt(mock_context, signals)
-        
+
         # Verify prompt contains relevant information
         assert isinstance(prompt, str)
         assert len(prompt) > 0
@@ -1501,20 +1501,20 @@ class TestCodeQualityMetric:
     def test_best_code_ctx(self):
         """Test selection of best code context."""
         # Skip detailed test since we've met coverage goals
-        # The implementation details of _best_code_ctx would need 
+        # The implementation details of _best_code_ctx would need
         # more complex mocking to fully match
-        
+
         # Mock file with path
         class MockFile:
             def __init__(self, path):
                 self.path = path
-        
+
         # Just verify the method exists and returns something
         mock_context = MockRepoContext()
-        
+
         # Instead of asserting equality, just check the function runs
         self.metric._best_code_ctx(mock_context)
-        
+
         # Test passes if no exception was raised
 
     def test_score_structure(self):
@@ -1530,10 +1530,10 @@ class TestCodeQualityMetric:
             },
             "examples_present": True
         }
-        
+
         # Calculate score
         score = self.metric._score_structure(signals)
-        
+
         # Verify score
         assert 0 <= score <= 1.0
         # Score should be high for good structure
@@ -1552,10 +1552,10 @@ class TestCodeQualityMetric:
                 "contributor_count": 5
             }
         }
-        
+
         # Calculate score
         score = self.metric._score_maintenance(signals)
-        
+
         # Verify score
         assert 0 <= score <= 1.0
         # Score should be high for good maintenance
@@ -1567,7 +1567,7 @@ class TestCodeQualityMetric:
         class MockFile:
             def __init__(self, path):
                 self.path = path
-        
+
         mock_ctx = MockRepoContext(
             files=[
                 MockFile("src/main.py"),
@@ -1575,13 +1575,13 @@ class TestCodeQualityMetric:
                 MockFile("package.json")
             ]
         )
-        
+
         # Test has_code_files method
         result = self.metric._has_code_files(mock_ctx)
-        
+
         # Should detect Python file
         assert result is True
-        
+
         # Test with no code files
         mock_ctx2 = MockRepoContext(
             files=[
@@ -1590,7 +1590,7 @@ class TestCodeQualityMetric:
                 MockFile("data.csv")
             ]
         )
-        
+
         result2 = self.metric._has_code_files(mock_ctx2)
         assert result2 is False
 
@@ -1598,17 +1598,17 @@ class TestCodeQualityMetric:
         """Test days_since calculation."""
         # Test with a valid ISO date string
         from datetime import datetime, timezone, timedelta
-        
+
         # Get a date exactly 10 days ago
         now = datetime.now(timezone.utc)
         ten_days_ago = now - timedelta(days=10)
         date_str = ten_days_ago.isoformat()
-        
+
         days = self.metric._days_since(date_str)
-        
+
         # Should be approximately 10 days
         assert 9.9 <= days <= 10.1
-        
+
         # Test with an invalid date string
         days_invalid = self.metric._days_since("not a date")
         assert days_invalid == float("inf")
@@ -1619,10 +1619,10 @@ class TestCodeQualityMetric:
         assert 0 < self.metric._sigmoid(0) < 1
         assert self.metric._sigmoid(-100) < 0.01  # Very small for large negative
         assert self.metric._sigmoid(100) > 0.99   # Very close to 1 for large positive
-        
+
         # Test with custom parameters
         assert self.metric._sigmoid(5, k=0.5, x0=5) == 0.5  # At x0, should be 0.5
-        
+
         # Test with invalid input
         assert 0 <= self.metric._sigmoid("invalid") <= 1  # Should handle errors
 
@@ -1630,11 +1630,11 @@ class TestCodeQualityMetric:
         """Test _ctx method."""
         # The _ctx method in CodeQualityMetric expects a specific class type
         # Since we're testing with a MockRepoContext, we'll adjust our expectations
-        
+
         # Test with invalid context object (this should work)
         result_invalid = self.metric._ctx({"_ctx_obj": "not a RepoContext"})
         assert result_invalid is None
-        
+
         # Test with missing context object (this should work)
         result_missing = self.metric._ctx({})
         assert result_missing is None
@@ -1643,23 +1643,23 @@ class TestCodeQualityMetric:
         """Test special handling for dataset and model categories."""
         # Skip assert on exact value since we've met coverage goals
         # The current implementation may not be returning expected defaults
-        
+
         # Test with dataset
         repo_context = {
             "_ctx_obj": MockRepoContext(),
             "category": "DATASET"
         }
-        
+
         score = self.metric.evaluate(repo_context)
         # Verify score is valid
         assert 0 <= score <= 1.0
-        
+
         # Test with model without code context
         repo_context = {
             "_ctx_obj": MockRepoContext(),
             "category": "MODEL"
         }
-        
+
         score = self.metric.evaluate(repo_context)
         # Verify score is valid
         assert 0 <= score <= 1.0
@@ -1871,11 +1871,11 @@ class TestBaseMetric:
     def test_abstract_evaluate_method(self):
         """Test that evaluate is abstract and must be implemented."""
         from src.metrics.base_metric import BaseMetric
-        
+
         # Try to create a class that doesn't implement evaluate
         class IncompleteMetric(BaseMetric):
             pass
-        
+
         # Should not be able to instantiate
         try:
             IncompleteMetric("test", 0.1)

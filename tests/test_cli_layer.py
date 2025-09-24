@@ -13,11 +13,11 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from app import (main, read_urls, _build_context_for_url, persist_context, 
-                 _canon_for, _resolve_db_path, _ensure_path_secure, 
+from app import (main, read_urls, _build_context_for_url, persist_context,  # noqa: E402
+                 _canon_for, _resolve_db_path, _ensure_path_secure,
                  _find_project_root, _user_cache_base, _evaluate_and_persist)
-from repo_context import RepoContext
-from url_router import UrlType
+from repo_context import RepoContext  # noqa: E402
+from url_router import UrlType  # noqa: E402
 
 
 class TestAppCLI:
@@ -81,26 +81,26 @@ class TestAppCLI:
         # Setup mocks
         test_url = "https://huggingface.co/bert-base-uncased"
         mock_read_urls.return_value = [test_url]
-        
+
         # Mock the model context builder and its return value
         mock_context = MagicMock()
         mock_build_model_context.return_value = mock_context
-        
+
         # Mock other dependencies
         with patch('app._build_context_for_url') as mock_build_context, \
              patch('app.persist_context') as mock_persist, \
              patch('app._evaluate_and_persist') as mock_evaluate, \
              patch('app._resolve_db_path') as mock_db_path, \
              patch('app._ensure_path_secure'):
-            
+
             mock_db_path.return_value = "mock_db_path"
             mock_build_context.return_value = ("MODEL", mock_context)
             mock_persist.return_value = 1  # repo ID
-            
+
             # Test with mock sys.argv
             with patch('sys.argv', ['app.py', 'test_urls.txt']):
                 result = main()
-                
+
             # Verify calls
             mock_read_urls.assert_called_once_with('test_urls.txt')
             mock_build_context.assert_called_once_with(test_url)
@@ -120,19 +120,19 @@ class TestAppCLI:
             "https://huggingface.co/gpt2"
         ]
         mock_read_urls.return_value = test_urls
-        
+
         # Mock the model context builder and its return values
         mock_context1 = MagicMock()
         mock_context2 = MagicMock()
         mock_build_model_context.side_effect = [mock_context1, mock_context2]
-        
+
         # Mock other dependencies
         with patch('app._build_context_for_url') as mock_build_context, \
              patch('app.persist_context') as mock_persist, \
              patch('app._evaluate_and_persist') as mock_evaluate, \
              patch('app._resolve_db_path') as mock_db_path, \
              patch('app._ensure_path_secure'):
-            
+
             mock_db_path.return_value = "mock_db_path"
             # Set up return values for each URL
             mock_build_context.side_effect = [
@@ -140,11 +140,11 @@ class TestAppCLI:
                 ("MODEL", mock_context2)
             ]
             mock_persist.side_effect = [1, 2]  # repo IDs
-            
+
             # Test with mock sys.argv
             with patch('sys.argv', ['app.py', 'test_urls.txt']):
                 result = main()
-                
+
             # Verify calls
             mock_read_urls.assert_called_once_with('test_urls.txt')
             assert mock_build_context.call_count == 2
@@ -166,64 +166,70 @@ class TestAppCLIFunctions:
         """Test building context for a model URL."""
         with patch('app.UrlRouter') as mock_router, \
              patch('app.build_model_context') as mock_build_model:
-            
+
             # Setup mocks
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.MODEL
             mock_router.return_value.parse.return_value = mock_parsed
-            
+
             mock_context = MagicMock(spec=RepoContext)
             mock_build_model.return_value = mock_context
-            
+
             # Test
-            category, context = _build_context_for_url("https://huggingface.co/bert-base-uncased")
-            
+            category, context = _build_context_for_url(
+                "https://huggingface.co/bert-base-uncased")
+
             # Verify
             assert category == "MODEL"
             assert context == mock_context
-            mock_build_model.assert_called_once_with("https://huggingface.co/bert-base-uncased")
+            mock_build_model.assert_called_once_with(
+                "https://huggingface.co/bert-base-uncased")
 
     def test_build_context_for_url_dataset(self):
         """Test building context for a dataset URL."""
         with patch('app.UrlRouter') as mock_router, \
              patch('app.build_dataset_context') as mock_build_dataset:
-            
+
             # Setup mocks
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.DATASET
             mock_router.return_value.parse.return_value = mock_parsed
-            
+
             mock_context = MagicMock(spec=RepoContext)
             mock_build_dataset.return_value = mock_context
-            
+
             # Test
-            category, context = _build_context_for_url("https://huggingface.co/datasets/squad")
-            
+            category, context = _build_context_for_url(
+                "https://huggingface.co/datasets/squad")
+
             # Verify
             assert category == "DATASET"
             assert context == mock_context
-            mock_build_dataset.assert_called_once_with("https://huggingface.co/datasets/squad")
+            mock_build_dataset.assert_called_once_with(
+                "https://huggingface.co/datasets/squad")
 
     def test_build_context_for_url_code(self):
         """Test building context for a code URL."""
         with patch('app.UrlRouter') as mock_router, \
              patch('app.build_code_context') as mock_build_code:
-            
+
             # Setup mocks
             mock_parsed = MagicMock()
             mock_parsed.type = UrlType.CODE
             mock_router.return_value.parse.return_value = mock_parsed
-            
+
             mock_context = MagicMock(spec=RepoContext)
             mock_build_code.return_value = mock_context
-            
+
             # Test
-            category, context = _build_context_for_url("https://github.com/pytorch/pytorch")
-            
+            category, context = _build_context_for_url(
+                "https://github.com/pytorch/pytorch")  # noqa: E501
+
             # Verify
             assert category == "CODE"
             assert context == mock_context
-            mock_build_code.assert_called_once_with("https://github.com/pytorch/pytorch")
+            mock_build_code.assert_called_once_with(
+                "https://github.com/pytorch/pytorch")
 
     def test_build_context_for_url_unsupported(self):
         """Test building context for an unsupported URL type."""
@@ -232,7 +238,7 @@ class TestAppCLIFunctions:
             mock_parsed = MagicMock()
             mock_parsed.type = None  # Unsupported type
             mock_router.return_value.parse.return_value = mock_parsed
-            
+
             # Test - should raise ValueError
             with pytest.raises(ValueError, match="Unsupported URL type"):
                 _build_context_for_url("https://invalid-url.com")
@@ -242,7 +248,7 @@ class TestAppCLIFunctions:
         mock_ctx = MagicMock(spec=RepoContext)
         mock_ctx.hf_id = "bert-base-uncased"
         mock_ctx.url = "https://huggingface.co/bert-base-uncased"
-        
+
         result = _canon_for(mock_ctx, "MODEL")
         assert result == "bert-base-uncased"
 
@@ -251,7 +257,7 @@ class TestAppCLIFunctions:
         mock_ctx = MagicMock(spec=RepoContext)
         mock_ctx.hf_id = "datasets/squad"
         mock_ctx.url = "https://huggingface.co/datasets/squad"
-        
+
         result = _canon_for(mock_ctx, "DATASET")
         assert result == "squad"  # removes "datasets/" prefix
 
@@ -261,7 +267,7 @@ class TestAppCLIFunctions:
         mock_ctx.hf_id = None
         mock_ctx.gh_url = "https://github.com/pytorch/pytorch"
         mock_ctx.url = "https://github.com/pytorch/pytorch"
-        
+
         result = _canon_for(mock_ctx, "CODE")
         assert result == "https://github.com/pytorch/pytorch"
 
@@ -271,7 +277,7 @@ class TestAppCLIFunctions:
         mock_ctx.hf_id = None
         mock_ctx.gh_url = None
         mock_ctx.url = None
-        
+
         result = _canon_for(mock_ctx, "MODEL")
         assert result == ""  # empty string when no identifiers
 
@@ -279,15 +285,15 @@ class TestAppCLIFunctions:
         """Test finding project root with .git directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            
+
             # Create a .git directory
             git_dir = tmp_path / ".git"
             git_dir.mkdir()
-            
+
             # Create a subdirectory
             sub_dir = tmp_path / "subdir" / "deep"
             sub_dir.mkdir(parents=True)
-            
+
             # Test from subdirectory
             result = _find_project_root(sub_dir)
             assert result == tmp_path
@@ -298,7 +304,7 @@ class TestAppCLIFunctions:
             tmp_path = Path(tmpdir)
             sub_dir = tmp_path / "subdir"
             sub_dir.mkdir()
-            
+
             # Test - should return None when no .git found
             result = _find_project_root(sub_dir)
             assert result is None
@@ -307,7 +313,7 @@ class TestAppCLIFunctions:
     def test_user_cache_base_windows(self, mock_system):
         """Test user cache base path on Windows."""
         mock_system.return_value = "Windows"
-        
+
         with patch.dict(os.environ, {'APPDATA': 'C:\\Users\\test\\AppData\\Roaming'}):
             result = _user_cache_base()
             expected = Path('C:\\Users\\test\\AppData\\Roaming\\acme-cli')
@@ -317,7 +323,7 @@ class TestAppCLIFunctions:
     def test_user_cache_base_darwin(self, mock_system):
         """Test user cache base path on macOS."""
         mock_system.return_value = "Darwin"
-        
+
         with patch('app.Path.home') as mock_home:
             mock_home.return_value = Path('/Users/test')
             result = _user_cache_base()
@@ -328,7 +334,7 @@ class TestAppCLIFunctions:
     def test_user_cache_base_linux(self, mock_system):
         """Test user cache base path on Linux."""
         mock_system.return_value = "Linux"
-        
+
         with patch.dict(os.environ, {}, clear=True):
             with patch('app.Path.home') as mock_home:
                 mock_home.return_value = Path('/home/test')
@@ -342,10 +348,10 @@ class TestAppCLIFunctions:
             tmp_path = Path(tmpdir)
             git_dir = tmp_path / ".git"
             git_dir.mkdir()
-            
+
             with patch('app._find_project_root') as mock_find_root:
                 mock_find_root.return_value = tmp_path
-                
+
                 result = _resolve_db_path()
                 expected = tmp_path / ".acme" / "state.sqlite"
                 assert result == expected
@@ -354,10 +360,10 @@ class TestAppCLIFunctions:
         """Test resolving DB path when no project root exists."""
         with patch('app._find_project_root') as mock_find_root, \
              patch('app._user_cache_base') as mock_cache_base:
-            
+
             mock_find_root.return_value = None
             mock_cache_base.return_value = Path('/home/user/.cache/acme-cli')
-            
+
             result = _resolve_db_path()
             expected = Path('/home/user/.cache/acme-cli/state.sqlite')
             assert result == expected
@@ -367,13 +373,13 @@ class TestAppCLIFunctions:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             db_path = tmp_path / "cache" / "metrics.db"
-            
+
             # Ensure directory doesn't exist yet
             assert not db_path.parent.exists()
-            
+
             # Test
             _ensure_path_secure(db_path)
-            
+
             # Verify directory was created
             assert db_path.parent.exists()
             assert db_path.parent.is_dir()
@@ -383,12 +389,12 @@ class TestAppCLIFunctions:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             db_path = tmp_path / "cache" / "state.sqlite"
-            
+
             # Mock path.chmod instead of os.chmod
             with patch.object(Path, 'chmod') as mock_chmod:
                 # Test
                 _ensure_path_secure(db_path)
-                
+
                 # Verify chmod was called with correct permissions for the file
                 expected_mode = stat.S_IRUSR | stat.S_IWUSR  # 0o600
                 mock_chmod.assert_called_with(expected_mode)
@@ -422,19 +428,19 @@ class TestAppCLIFunctions:
         mock_ctx.files = []
         mock_ctx.linked_datasets = []
         mock_ctx.linked_code = []
-        
+
         with patch('app._canon_for') as mock_canon, \
              patch('app.db.open_db') as mock_open_db, \
              patch('app.db.upsert_resource') as mock_upsert:
-            
+
             mock_canon.return_value = "bert-base-uncased"
             mock_conn = MagicMock()
             mock_open_db.return_value = mock_conn
             mock_upsert.return_value = 123  # Mock resource ID
-            
+
             # Test
             result = persist_context(Path("test.db"), mock_ctx, "MODEL")
-            
+
             # Verify
             assert result == 123
             mock_canon.assert_called_once_with(mock_ctx, "MODEL")
@@ -444,10 +450,10 @@ class TestAppCLIFunctions:
     def test_persist_context_no_canonical_key(self):
         """Test context persistence when canonical key cannot be derived."""
         mock_ctx = MagicMock(spec=RepoContext)
-        
+
         with patch('app._canon_for') as mock_canon:
             mock_canon.return_value = None  # No canonical key
-            
+
             # Test - should raise ValueError
             with pytest.raises(ValueError, match="Cannot derive canonical key"):
                 persist_context(Path("test.db"), mock_ctx, "MODEL")
@@ -459,15 +465,15 @@ class TestAppCLIFunctions:
              patch('app._ensure_path_secure'), \
              patch('app._build_context_for_url') as mock_build_context, \
              patch('sys.argv', ['app.py', 'test_urls.txt']):
-            
+
             mock_read_urls.return_value = ["https://invalid-url.com"]
             mock_db_path.return_value = Path("test.db")
             mock_build_context.side_effect = Exception("Build failed")
-            
+
             # Capture stderr
             with patch('sys.stderr') as mock_stderr:
                 result = main()
-                
+
                 # Should return 1 (failure) and print error
                 assert result == 1
                 mock_stderr.write.assert_called()
@@ -481,13 +487,13 @@ class TestAppCLIFunctions:
              patch('app.persist_context') as mock_persist, \
              patch('app._evaluate_and_persist'), \
              patch('sys.argv', ['app.py', 'test_urls.txt']):
-            
+
             mock_read_urls.return_value = [
                 "https://huggingface.co/bert-base-uncased",
                 "https://invalid-url.com"
             ]
             mock_db_path.return_value = Path("test.db")
-            
+
             # First URL succeeds, second fails
             mock_ctx = MagicMock(spec=RepoContext)
             mock_build_context.side_effect = [
@@ -495,9 +501,9 @@ class TestAppCLIFunctions:
                 Exception("Build failed")
             ]
             mock_persist.return_value = 1
-            
+
             result = main()
-            
+
             # Should return 1 because not all URLs succeeded
             assert result == 1
 
@@ -510,13 +516,13 @@ class TestAppCLIFunctions:
              patch('app.persist_context') as mock_persist, \
              patch('app._evaluate_and_persist'), \
              patch('sys.argv', ['app.py', 'test_urls.txt']):
-            
+
             mock_read_urls.return_value = [
                 "https://huggingface.co/bert-base-uncased",
                 "https://huggingface.co/gpt2"
             ]
             mock_db_path.return_value = Path("test.db")
-            
+
             mock_ctx1 = MagicMock(spec=RepoContext)
             mock_ctx2 = MagicMock(spec=RepoContext)
             mock_build_context.side_effect = [
@@ -524,9 +530,9 @@ class TestAppCLIFunctions:
                 ("MODEL", mock_ctx2)
             ]
             mock_persist.side_effect = [1, 2]
-            
+
             result = main()
-            
+
             # Should return 0 because all URLs succeeded
             assert result == 0
 
@@ -629,7 +635,7 @@ class TestBuildContextForUrl:
         mock_router_instance = MagicMock()
         mock_router_instance.parse.return_value = mock_parsed
         mock_url_router.return_value = mock_router_instance
-        
+
         mock_context = MagicMock(spec=RepoContext)
         mock_build_model.return_value = mock_context
 
@@ -652,7 +658,7 @@ class TestBuildContextForUrl:
         mock_router_instance = MagicMock()
         mock_router_instance.parse.return_value = mock_parsed
         mock_url_router.return_value = mock_router_instance
-        
+
         mock_context = MagicMock(spec=RepoContext)
         mock_build_dataset.return_value = mock_context
 
@@ -675,7 +681,7 @@ class TestBuildContextForUrl:
         mock_router_instance = MagicMock()
         mock_router_instance.parse.return_value = mock_parsed
         mock_url_router.return_value = mock_router_instance
-        
+
         mock_context = MagicMock(spec=RepoContext)
         mock_build_code.return_value = mock_context
 
@@ -713,7 +719,7 @@ class TestAppEvaluationAndPersistenceFixed:
     @patch('app.db.open_db')
     @patch('app.NetScorer')
     def test_evaluate_and_persist_basic_flow(
-        self, mock_net_scorer, mock_open_db, mock_metric_eval_class, 
+        self, mock_net_scorer, mock_open_db, mock_metric_eval_class,
         mock_init_weights, mock_init_metrics
     ):
         """Test basic evaluation and persistence flow."""
@@ -723,12 +729,12 @@ class TestAppEvaluationAndPersistenceFixed:
         mock_metrics[1].name = "License"
         mock_init_metrics.return_value = mock_metrics
         mock_init_weights.return_value = {"BusFactor": 0.3, "License": 0.4}
-        
+
         mock_evaluator = MagicMock()
         mock_evaluator.evaluateAll.return_value = {"BusFactor": 0.8, "License": 0.9}
         mock_evaluator.aggregateScores.return_value = 0.85
         mock_metric_eval_class.return_value = mock_evaluator
-        
+
         mock_conn = MagicMock()
         mock_open_db.return_value = mock_conn
 
@@ -754,7 +760,7 @@ class TestAppEvaluationAndPersistenceFixed:
         mock_conn.close.assert_called_once()
 
     @patch('app.init_metrics')
-    @patch('app.init_weights') 
+    @patch('app.init_weights')
     @patch('app.MetricEval')
     @patch('app.db.open_db')
     def test_evaluate_and_persist_with_metric_errors(
@@ -766,12 +772,12 @@ class TestAppEvaluationAndPersistenceFixed:
         mock_metrics[0].name = "BusFactor"
         mock_init_metrics.return_value = mock_metrics
         mock_init_weights.return_value = {"BusFactor": 1.0}
-        
+
         mock_evaluator = MagicMock()
         mock_evaluator.evaluateAll.return_value = {"BusFactor": -1.0}  # Error value
         mock_evaluator.aggregateScores.return_value = 0.0
         mock_metric_eval_class.return_value = mock_evaluator
-        
+
         mock_conn = MagicMock()
         mock_open_db.return_value = mock_conn
 
@@ -899,12 +905,12 @@ class TestPathHelpers:
         """Test finding project root when .git exists."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            
+
             # Create a nested structure with .git at the top
             git_dir = temp_path / ".git"
             git_dir.mkdir()
-            
-            nested_dir = temp_path / "nested" / "deeply" 
+
+            nested_dir = temp_path / "nested" / "deeply"
             nested_dir.mkdir(parents=True)
 
             result = _find_project_root(nested_dir)
@@ -925,12 +931,12 @@ class TestPathHelpers:
         with patch('app.platform.system', return_value='Windows'), \
              patch('app.os.environ.get') as mock_getenv, \
              patch('app.Path.home') as mock_home:
-            
+
             mock_home.return_value = Path("C:/Users/test")
             mock_getenv.side_effect = lambda key: (
                 "C:/Users/test/AppData/Roaming" if key == "APPDATA" else None
             )
-            
+
             result = _user_cache_base()
             expected = Path("C:/Users/test/AppData/Roaming/acme-cli")
             assert result == expected
@@ -939,9 +945,9 @@ class TestPathHelpers:
         """Test user cache base on macOS."""
         with patch('app.platform.system', return_value='Darwin'), \
              patch('app.Path.home') as mock_home:
-            
+
             mock_home.return_value = Path("/Users/test")
-            
+
             result = _user_cache_base()
             expected = Path("/Users/test/Library/Application Support/acme-cli")
             assert result == expected
@@ -951,10 +957,10 @@ class TestPathHelpers:
         with patch('app.platform.system', return_value='Linux'), \
              patch('app.os.environ.get') as mock_getenv, \
              patch('app.Path.home') as mock_home:
-            
+
             mock_home.return_value = Path("/home/test")
             mock_getenv.return_value = None  # No XDG_CACHE_HOME set
-            
+
             result = _user_cache_base()
             expected = Path("/home/test/.cache/acme-cli")
             assert result == expected
@@ -963,7 +969,7 @@ class TestPathHelpers:
         """Test DB path resolution with environment variable."""
         with patch('app.os.environ.get') as mock_getenv:
             mock_getenv.return_value = "/custom/db/path.sqlite"
-            
+
             result = _resolve_db_path()
             assert result == Path("/custom/db/path.sqlite")
 
@@ -972,10 +978,10 @@ class TestPathHelpers:
         with patch('app.os.environ.get', return_value=None), \
              patch('app._find_project_root') as mock_find_root, \
              patch('app.Path.cwd') as mock_cwd:
-            
+
             mock_cwd.return_value = Path("/project/subdir")
             mock_find_root.return_value = Path("/project")
-            
+
             result = _resolve_db_path()
             expected = Path("/project/.acme/state.sqlite")
             assert result == expected
@@ -985,9 +991,9 @@ class TestPathHelpers:
         with patch('app.os.environ.get', return_value=None), \
              patch('app._find_project_root', return_value=None), \
              patch('app._user_cache_base') as mock_user_cache:
-            
+
             mock_user_cache.return_value = Path("/home/user/.cache/acme-cli")
-            
+
             result = _resolve_db_path()
             expected = Path("/home/user/.cache/acme-cli/state.sqlite")
             assert result == expected
@@ -996,13 +1002,13 @@ class TestPathHelpers:
         """Test path security enforcement."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = Path(temp_dir) / "subdir" / "test.db"
-            
+
             # Should create parent directories and file
             _ensure_path_secure(test_file)
-            
+
             assert test_file.parent.exists()
             assert test_file.exists()
-            
+
             # Check file permissions (on systems that support it)
             try:
                 file_stat = test_file.stat()

@@ -9,9 +9,9 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.metrics.base_metric import BaseMetric
-from src.metric_eval import MetricEval
-from src.metrics.community_rating_metric import CommunityRatingMetric
+from src.metrics.base_metric import BaseMetric  # noqa: E402
+from src.metric_eval import MetricEval  # noqa: E402
+from src.metrics.community_rating_metric import CommunityRatingMetric  # noqa: E402
 
 
 class SimpleTestMetric(BaseMetric):
