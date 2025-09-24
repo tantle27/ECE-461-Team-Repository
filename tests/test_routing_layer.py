@@ -9,7 +9,7 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from url_router import UrlRouter, UrlType  # noqa: E402
+from url_router import UrlRouter, UrlType
 
 
 class TestUrlRouter:

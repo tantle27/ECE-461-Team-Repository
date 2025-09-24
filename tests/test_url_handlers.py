@@ -11,20 +11,20 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 # Import after path setup to avoid import errors
-from handlers import (  # noqa: E402
+from handlers import (
     UrlHandler,
     ModelUrlHandler,
     DatasetUrlHandler,
     CodeUrlHandler
 )
-from repo_context import RepoContext  # noqa: E402
-from url_router import UrlType  # noqa: E402
-from api.hf_client import (  # noqa: E402
+from repo_context import RepoContext
+from url_router import UrlType
+from api.hf_client import (
     GatedRepoError,
     RepositoryNotFoundError,
     HfHubHTTPError
 )
-import handlers  # noqa: E402
+import handlers
 # No longer importing internal functions which might have been
 # refactored or removed
 
@@ -609,7 +609,7 @@ class TestCodeUrlHandlerComprehensive:
 
         # Should return context with error logged
         assert isinstance(ctx, RepoContext)
-        not_found_logs = [log for log in ctx.fetch_logs if "not found or not accessible" in log]  # noqa: E501
+        not_found_logs = [log for log in ctx.fetch_logs if "not found or not accessible" in log]
         assert len(not_found_logs) > 0
 
     @patch('handlers.GHClient')
@@ -651,14 +651,14 @@ class TestCodeUrlHandlerComprehensive:
         mock_client.get_readme_markdown.return_value = "# Test README"
 
         # Mock contributors retrieval to fail
-        mock_client.list_contributors.side_effect = Exception("Contributors fetch failed")  # noqa: E501
+        mock_client.list_contributors.side_effect = Exception("Contributors fetch failed")
 
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()
 
         # Should handle contributors error gracefully
         assert ctx.api_errors >= 1
-        contrib_error_logs = [log for log in ctx.fetch_logs if "contributors error" in log]  # noqa: E501
+        contrib_error_logs = [log for log in ctx.fetch_logs if "contributors error" in log]
         assert len(contrib_error_logs) > 0
 
     @patch('handlers.GHClient')
@@ -679,7 +679,7 @@ class TestCodeUrlHandlerComprehensive:
         ]
 
         # Mock file tree retrieval to fail
-        mock_client.get_repo_tree = MagicMock(side_effect=Exception("Tree fetch failed"))  # noqa: E501
+        mock_client.get_repo_tree = MagicMock(side_effect=Exception("Tree fetch failed"))
 
         handler = CodeUrlHandler("https://github.com/user/repo")
         ctx = handler.fetchMetaData()

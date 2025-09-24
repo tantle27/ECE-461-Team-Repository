@@ -754,7 +754,8 @@ class TestAPIClientBasicFunctionality:
             return None
 
         # Test primary token not available, fallback works
-        token = mock_get_env_with_fallbacks("PRIMARY_TOKEN", "FALLBACK_TOKEN", "ANOTHER_FALLBACK")  # noqa: E501
+        token = mock_get_env_with_fallbacks("PRIMARY_TOKEN", "FALLBACK_TOKEN", 
+                                           "ANOTHER_FALLBACK")
         assert token == "fallback_value"
 
         # Test no tokens available

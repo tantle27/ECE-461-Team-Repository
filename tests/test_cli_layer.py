@@ -13,11 +13,11 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from app import (main, read_urls, _build_context_for_url, persist_context,  # noqa: E402
+from app import (main, read_urls, _build_context_for_url, persist_context,
                  _canon_for, _resolve_db_path, _ensure_path_secure,
                  _find_project_root, _user_cache_base, _evaluate_and_persist)
-from repo_context import RepoContext  # noqa: E402
-from url_router import UrlType  # noqa: E402
+from repo_context import RepoContext
+from url_router import UrlType
 
 
 class TestAppCLI:
@@ -223,7 +223,7 @@ class TestAppCLIFunctions:
 
             # Test
             category, context = _build_context_for_url(
-                "https://github.com/pytorch/pytorch")  # noqa: E501
+                "https://github.com/pytorch/pytorch")
 
             # Verify
             assert category == "CODE"

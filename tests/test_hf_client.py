@@ -10,7 +10,7 @@ from unittest.mock import patch, Mock
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.api.hf_client import (  # noqa: E402
+from src.api.hf_client import (
     HFClient,
     _create_session,
     _TimeoutHTTPAdapter,
