@@ -9,9 +9,9 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.metrics.base_metric import BaseMetric
-from src.metric_eval import MetricEval
-from src.metrics.community_rating_metric import CommunityRatingMetric
+from src.metrics.base_metric import BaseMetric  # noqa: E402
+from src.metric_eval import MetricEval  # noqa: E402
+from src.metrics.community_rating_metric import CommunityRatingMetric  # noqa: E402
 
 
 class SimpleTestMetric(BaseMetric):
@@ -91,18 +91,18 @@ class TestIntegrationMetricsSystem:
         models = [
             {
                 "model_name": "bert-base",
-                "hf_likes": 50,
-                "hf_downloads": 2000
+                "likes": 50,
+                "downloads_all_time": 2000
             },
             {
                 "model_name": "gpt-2-large",
-                "hf_likes": 150,
-                "hf_downloads": 5000
+                "likes": 150,
+                "downloads_all_time": 5000
             },
             {
                 "model_name": "t5",
-                "hf_likes": 25,
-                "hf_downloads": 500
+                "likes": 25,
+                "downloads_all_time": 500
             }
         ]
 
@@ -130,8 +130,9 @@ class TestIntegrationMetricsSystem:
         gpt2_result = next(r for r in results if r["model"] == "gpt-2-large")
         bert_result = next(r for r in results if r["model"] == "bert-base")
 
-        assert (gpt2_result["scores"]["CommunityRating"] >
-                bert_result["scores"]["CommunityRating"])
+        gpt2_rating = gpt2_result["scores"]["CommunityRating"]
+        bert_rating = bert_result["scores"]["CommunityRating"]
+        assert gpt2_rating > bert_rating
 
     def test_error_handling_in_pipeline(self):
         """Test that the pipeline handles errors gracefully."""
@@ -157,8 +158,8 @@ class TestIntegrationMetricsSystem:
         evaluator = MetricEval(metrics, weights)
 
         repo_context = {
-            "hf_likes": 100,
-            "hf_downloads": 5000
+            "likes": 100,
+            "downloads_all_time": 5000
         }
 
         # Run evaluation (should not crash)
@@ -222,9 +223,9 @@ class TestSystemPerformance:
 
         for i in range(num_metrics):
             metric_name = f"metric_{i}"
-            weight = 1.0/num_metrics
+            weight = 1.0 / num_metrics
             metrics.append(SimpleTestMetric(metric_name, weight=weight))
-            weights[metric_name] = 1.0/num_metrics
+            weights[metric_name] = 1.0 / num_metrics
 
         evaluator = MetricEval(metrics, weights)
         repo_context = {"model_name": "performance-test-model"}

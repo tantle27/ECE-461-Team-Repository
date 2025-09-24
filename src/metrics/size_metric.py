@@ -41,10 +41,12 @@ class SizeMetric(BaseMetric):
             if files:
                 size_bytes = sum(f.size_bytes for f in files)
 
+        # Using 1000 for decimal GB conversion (1 GB = 10^9 bytes)
         size_gb = size_bytes / (1000**3)
         if size_gb < 2:
             return 1.0
         elif size_gb <= 16:
+            # Formula matches test expectation
             return 1.0 - 0.5 * ((size_gb - 2) / 14)
         elif size_gb <= 512:
             return 0.5 - 0.5 * ((size_gb - 16) / 496)

@@ -135,10 +135,12 @@ class TestRepoContext:
         total_bytes = repo_context.total_weight_bytes()
         total_gb = repo_context.total_weight_gb()
 
-        # 1.5GB in bytes
+        # 1.5 binary GB in bytes
         expected_bytes = 1024 * 1024 * 1024 + 512 * 1024 * 1024
         assert total_bytes == expected_bytes
-        assert abs(total_gb - 1.5) < 0.01  # ~1.5 GiB
+        # Using binary GiB conversion (1024^3)
+        expected_binary_gib = expected_bytes / (1024**3)
+        assert abs(total_gb - expected_binary_gib) < 0.01
 
     def test_canonical_keys(self):
         """Test canonical key generation for linking"""
