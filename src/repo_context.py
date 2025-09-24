@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Iterable, Optional
 
+from api.gh_client import normalize_and_verify_github
+from api.hf_client import github_urls_from_readme
 from url_router import UrlRouter, UrlType
+import re
 
 
 @dataclass(frozen=True)
 class FileInfo:
     """Lightweight descriptor for a file in the local checkout."""
+
     path: Path
     size_bytes: int
     ext: str
@@ -25,7 +31,6 @@ class RepoContext:
     hf_id: Optional[str] = None
     gh_url: Optional[str] = None
     host: Optional[str] = None
-
     # Local checkout
     repo_path: Optional[Path] = None
     files: list[FileInfo] = field(default_factory=list)
@@ -139,9 +144,7 @@ class RepoContext:
                 if p.suffix.startswith(".")
                 else p.suffix.lower()
             )
-            self.files.append(
-                FileInfo(path=p, size_bytes=0, ext=ext)
-            )
+            self.files.append(FileInfo(path=p, size_bytes=0, ext=ext))
 
     def link_dataset(self, ds_ctx: "RepoContext") -> None:
         """Associate a dataset context to this context (usually a model)."""
@@ -162,3 +165,116 @@ class RepoContext:
         if any(self._canon_code_key(c) == key for c in self.linked_code):
             return
         self.linked_code.append(code_ctx)
+
+    # inside RepoContext
+    def hydrate_code_links(self, hf_client, gh_client) -> None:
+        if self.gh_url:
+            return
+        url = find_code_repo_url(
+            hf_client, gh_client, self, prefer_readme=True
+        )
+        if not url:
+            return
+        self.gh_url = url
+        self.link_code(RepoContext(url=url, gh_url=url, host="github.com"))
+
+
+def find_code_repo_url(
+    hf_client, gh_client, ctx: RepoContext, *, prefer_readme: bool = True
+) -> Optional[str]:
+    candidates: list[str] = []
+    if ctx.readme_text and ctx.hf_id:
+        candidates.extend(
+            github_urls_from_readme(
+                ctx.hf_id, ctx.readme_text, card_data=ctx.card_data
+            )
+        )
+
+    if not candidates and ctx.hf_id:
+        p = ctx.hf_id.replace("datasets/", "")
+        if "/" in p:
+            org, name = p.split("/", 1)
+            guess = f"https://github.com/{org}/{_norm(name)}".replace(
+                "--", "-"
+            )
+            candidates.append(guess)
+
+    verified = normalize_and_verify_github(gh_client, candidates)
+
+    if not verified:
+        return None
+
+    # prefer README-derived one
+    if prefer_readme and ctx.readme_text and ctx.hf_id:
+        for u in github_urls_from_readme(
+            ctx.hf_id, ctx.readme_text, card_data=ctx.card_data
+        ):
+            if u in verified:
+                return u
+
+    # tie-break: prefer same owner + best version
+    p = ctx.hf_id.replace("datasets/", "")
+    hf_org = p.split("/", 1)[0].lower() if "/" in p else p.lower()
+
+    def ver_score(u: str) -> float:
+        repo = u.rsplit("/", 1)[-1]
+        return _ver_bonus(ctx.hf_id, repo)
+
+    same_owner = [u for u in verified if f"/{hf_org}/" in u.lower()]
+    if same_owner:
+        same_owner.sort(key=ver_score, reverse=True)
+        return same_owner[0]
+
+    verified.sort(key=ver_score, reverse=True)
+    return verified[0]
+
+
+_VERSION_RE = re.compile(
+    r"(?<![a-z0-9])v?(\d+(?:\.\d+)*)(?![a-z0-9])", re.I
+)
+
+
+def _norm(s: str) -> str:
+    """Normalize a name for GH repo guessing (lower + simple cleanup)."""
+    s = (s or "").lower()
+    for pre in ("hf-", "huggingface-", "the-"):
+        if s.startswith(pre):
+            s = s[len(pre):]
+    for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo",
+                "-code"):
+        if s.endswith(suf):
+            s = s[:-len(suf)]
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s
+
+
+def _ver_bonus(hf_id: str | None, repo_name: str | None) -> float:
+    """
+    Small score bonus based on version similarity between HF id and GH repo
+    name. Exact match → +0.30, off-by-one segment → +0.10, otherwise -0.20.
+    """
+    def parse_vers(txt: str | None) -> list[tuple[int, ...]]:
+        if not txt:
+            return []
+        return [
+            tuple(int(x) for x in m.group(1).split("."))
+            for m in _VERSION_RE.finditer(txt)
+        ]
+
+    hv = parse_vers(hf_id)
+    rv = parse_vers(repo_name)
+    if not hv or not rv:
+        return 0.0
+
+    def dist(a: tuple[int, ...], b: tuple[int, ...]) -> int:
+        n = max(len(a), len(b))
+        ap = a + (0,) * (n - len(a))
+        bp = b + (0,) * (n - len(b))
+        return sum(1 for i in range(n) if ap[i] != bp[i])
+
+    m = min(dist(a, b) for a in hv for b in rv)
+    if m == 0:
+        return 0.30
+    if m == 1:
+        return 0.10
+    return -0.20

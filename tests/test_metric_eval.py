@@ -18,8 +18,8 @@ from unittest.mock import patch, MagicMock
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.metric_eval import MetricEval
-from src.metrics.base_metric import BaseMetric
+from src.metric_eval import MetricEval, init_metrics, init_weights  # noqa: E402
+from src.metrics.base_metric import BaseMetric  # noqa: E402
 
 
 class MockMetric(BaseMetric):
@@ -261,6 +261,94 @@ class TestMetricEval:
             f"got {time_spread}s spread"
         )
 
+    def test_aggregate_scores_empty(self):
+        """Test aggregateScores with empty scores."""
+        evaluator = MetricEval([], {})
+        score = evaluator.aggregateScores({})
+        assert score == 0.0
+
+    def test_aggregate_scores_no_matching_weights(self):
+        """Test aggregateScores when no scores match weights."""
+        evaluator = MetricEval([], {"metric1": 0.5, "metric2": 0.5})
+        score = evaluator.aggregateScores({"metric3": 0.8, "metric4": 0.6})
+        assert score == 0.0
+
+    def test_aggregate_scores_partial_match(self):
+        """Test aggregateScores with partial matching of scores and weights."""
+        evaluator = MetricEval([], {"metric1": 0.3, "metric2": 0.7})
+
+        # Only one score matches weights
+        score = evaluator.aggregateScores({"metric1": 0.8, "metric3": 0.6})
+        assert score == 0.8  # Only metric1 counts, so its score is used directly
+
+    def test_aggregate_scores_clamping(self):
+        """Test aggregateScores clamps to [0, 1] range."""
+        evaluator = MetricEval([], {"metric1": 0.5, "metric2": 0.5})
+
+        # Test clamping to upper bound
+        score = evaluator.aggregateScores({"metric1": 1.2, "metric2": 1.5})
+        assert score == 1.0
+
+        # Test clamping to lower bound
+        score = evaluator.aggregateScores({"metric1": -0.2, "metric2": -0.5})
+        assert score == 0.0
+
+        # Test mix of positive and negative
+        score = evaluator.aggregateScores({"metric1": 0.7, "metric2": -0.3})
+        expected = max(0.0, min(1.0, (0.7 * 0.5 + (-0.3) * 0.5)))
+        assert abs(score - expected) < 0.001
+
+    def test_evaluate_all_handling_exceptions(self):
+        """Test evaluateAll properly handles exceptions from metrics."""
+        # Create metrics - one will succeed, one will fail
+        metric1 = MagicMock(spec=BaseMetric)
+        metric1.name = "metric1"
+        metric1.evaluate = MagicMock(return_value=0.75)
+
+        metric2 = MagicMock(spec=BaseMetric)
+        metric2.name = "metric2"
+        metric2.evaluate = MagicMock(side_effect=Exception("Test exception"))
+
+        evaluator = MetricEval([metric1, metric2], {"metric1": 0.6, "metric2": 0.4})
+
+        # Evaluate with mocked print to capture output
+        with patch('builtins.print') as mock_print:
+            results = evaluator.evaluateAll({"test": "data"})
+
+            # Verify both metrics were processed
+            assert "metric1" in results
+            assert "metric2" in results
+            assert results["metric1"] == 0.75
+            assert results["metric2"] == -1  # Failed metric should return -1
+
+            # Verify exception was printed
+            mock_print.assert_called_once()
+            assert "Error evaluating metric2" in mock_print.call_args[0][0]
+
+    def test_init_weights(self):
+        """Test init_weights returns the expected weights."""
+        weights = init_weights()
+
+        # Check if all expected metric names are present
+        expected_metrics = [
+            "BusFactor",
+            "CodeQuality",
+            "CommunityRating",
+            "DatasetAvailability",
+            "DatasetQuality",
+            "License",
+            "PerformanceClaims",
+            "RampUpTime",
+            "Size",
+        ]
+
+        for metric in expected_metrics:
+            assert metric in weights
+
+        # Check that weights sum to 1.0 (or very close)
+        total_weight = sum(weights.values())
+        assert abs(total_weight - 1.0) < 0.01
+
 
 class TestMetricEvalErrorHandling:
     """Test suite for error handling scenarios in MetricEval."""
@@ -310,6 +398,247 @@ class TestMetricEvalErrorHandling:
         """Test invalid URL format simulation."""
         with pytest.raises(ValueError):
             raise ValueError("Invalid URL format")
+
+
+class TestInitMetricsComprehensive:
+    """Comprehensive tests for init_metrics function to increase coverage."""
+
+    def test_init_metrics_success(self):
+        """Test loading all metrics successfully."""
+        metrics = init_metrics()
+        assert isinstance(metrics, list)
+        # May have loaded some metrics or none if modules aren't available
+        # All returned items should be BaseMetric instances or at least
+        # have the expected interface
+        for metric in metrics:
+            # Check that it has the expected BaseMetric interface
+            assert hasattr(metric, 'name')
+            assert hasattr(metric, 'evaluate')
+            assert hasattr(metric, 'get_description')
+            assert metric.name is not None
+
+    @patch('builtins.__import__')
+    def test_init_metrics_import_error(self, mock_import):
+        """Test handling of import errors for individual metrics."""
+        import importlib
+        # Mock the import to fail for one module
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                raise ImportError("Module not found")
+            # For other modules, use the real import
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        # Should continue loading other metrics despite one failure
+        with patch('builtins.print') as mock_print:
+            result = init_metrics()
+            # Should have printed warning about skipped metric
+            mock_print.assert_called()
+            assert isinstance(result, list)
+            warning_calls = [call for call in mock_print.call_args_list
+                             if 'WARN' in str(call) and 'BusFactor' in str(call)]
+            assert len(warning_calls) > 0
+
+    @patch('builtins.__import__')
+    def test_init_metrics_getattr_error(self, mock_import):
+        """Test handling of getattr errors when class doesn't exist in module."""
+        import importlib
+        from unittest.mock import Mock
+        # Mock a module that doesn't have the expected class
+        mock_module = Mock()
+        del mock_module.BusFactorMetric  # Ensure the attribute doesn't exist
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                return mock_module
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print') as mock_print:
+            metrics = init_metrics()
+            # Should have warned about the missing class
+            mock_print.assert_called()
+            assert isinstance(metrics, list)  # Should still return a list
+
+    @patch('builtins.__import__')
+    def test_init_metrics_instantiation_error(self, mock_import):
+        """Test handling of errors during metric instantiation."""
+        import importlib
+        from unittest.mock import Mock
+        # Mock a class that fails during instantiation
+        mock_module = Mock()
+        mock_class = Mock()
+        mock_class.side_effect = Exception("Instantiation failed")
+        mock_module.BusFactorMetric = mock_class
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                return mock_module
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print') as mock_print:
+            metrics = init_metrics()
+            # Should have warned about the instantiation failure
+            mock_print.assert_called()
+            assert isinstance(metrics, list)  # Should still return a list
+
+    @patch('builtins.__import__')
+    def test_init_metrics_name_mismatch(self, mock_import):
+        """Test handling of metrics with incorrect names."""
+        import importlib
+        from unittest.mock import Mock
+        # Mock a metric with wrong name
+        mock_module = Mock()
+        mock_metric = Mock(spec=BaseMetric)
+        mock_metric.name = "WrongName"  # Should be "BusFactor"
+        mock_class = Mock(return_value=mock_metric)
+        mock_module.BusFactorMetric = mock_class
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                return mock_module
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print') as mock_print:
+            metrics = init_metrics()
+            # Should have warned about name mismatch
+            mock_print.assert_called()
+            assert isinstance(metrics, list)  # Should still return a list
+            warning_calls = [call for call in mock_print.call_args_list
+                             if 'WARN' in str(call) and 'name=' in str(call)]
+            assert len(warning_calls) > 0
+
+    @patch('builtins.__import__')
+    def test_init_metrics_multiple_failures(self, mock_import):
+        """Test handling of multiple metric loading failures."""
+        import importlib
+        from unittest.mock import Mock
+
+        def import_side_effect(mod_path, **kwargs):
+            if "bus_factor" in mod_path:
+                raise ImportError("Bus factor module missing")
+            elif "code_quality" in mod_path:
+                raise ModuleNotFoundError("Code quality module not found")
+            elif "license" in mod_path:
+                # Return a module with a broken class
+                mock_module = Mock()
+                mock_module.LicenseMetric.side_effect = Exception(
+                    "Broken license metric")
+                return mock_module
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print') as mock_print:
+            metrics = init_metrics()
+            # Should have multiple warning messages
+            assert len(mock_print.call_args_list) >= 3
+            assert isinstance(metrics, list)  # Should still return a list
+
+    def test_init_metrics_expected_modules(self):
+        """Test that all expected metrics are attempted to be loaded."""
+        # This test verifies the specs list in init_metrics
+        with patch('builtins.__import__') as mock_import:
+            with patch('builtins.print'):
+                # Make all imports fail to see what modules are attempted
+                mock_import.side_effect = ImportError("Mock failure")
+                init_metrics()
+
+                # Check that all expected modules were attempted
+                expected_modules = [
+                    "metrics.bus_factor_metric",
+                    "metrics.code_quality_metric",
+                    "metrics.community_rating_metric",
+                    "metrics.dataset_availability_metric",
+                    "metrics.dataset_quality_metric",
+                    "metrics.license_metric",
+                    "metrics.performance_claims_metric",
+                    "metrics.ramp_up_time_metric",
+                    "metrics.size_metric",
+                ]
+
+                called_modules = [call[0][0] for call in mock_import.call_args_list]
+                for expected_mod in expected_modules:
+                    assert expected_mod in called_modules
+
+
+class TestInitMetricsEdgeCases:
+    """Test edge cases and error conditions in metric loading."""
+
+    @patch('builtins.__import__')
+    def test_import_returns_none(self, mock_import):
+        """Test handling when import returns None."""
+        import importlib
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                return None
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print') as mock_print:
+            metrics = init_metrics()
+            # Should handle None module gracefully
+            mock_print.assert_called()
+            assert isinstance(metrics, list)  # Should still return a list
+
+    @patch('builtins.__import__')
+    def test_class_instantiation_returns_none(self, mock_import):
+        """Test handling when metric class instantiation returns None."""
+        import importlib
+        from unittest.mock import Mock
+        mock_module = Mock()
+        mock_class = Mock(return_value=None)
+        mock_module.BusFactorMetric = mock_class
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                return mock_module
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print'):
+            metrics = init_metrics()
+            # Should skip None metrics
+            for metric in metrics:
+                assert metric is not None
+
+    @patch('builtins.__import__')
+    def test_metric_name_attribute_error(self, mock_import):
+        """Test when getattr for name raises AttributeError."""
+        import importlib
+        from unittest.mock import Mock
+        mock_module = Mock()
+        mock_metric = Mock(spec=BaseMetric)
+
+        def name_side_effect(*args, **kwargs):
+            raise AttributeError("name attribute error")
+
+        type(mock_metric).name = property(name_side_effect)
+        mock_class = Mock(return_value=mock_metric)
+        mock_module.BusFactorMetric = mock_class
+
+        def import_side_effect(mod_path, **kwargs):
+            if mod_path == "metrics.bus_factor_metric":
+                return mock_module
+            return importlib.import_module(mod_path)
+
+        mock_import.side_effect = import_side_effect
+
+        with patch('builtins.print') as mock_print:
+            metrics = init_metrics()
+            # Should handle attribute errors gracefully
+            mock_print.assert_called()
+            assert isinstance(metrics, list)  # Should still return a list
 
 
 if __name__ == "__main__":

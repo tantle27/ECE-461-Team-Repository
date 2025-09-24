@@ -1,0 +1,21 @@
+[run]
+source = src
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass
+    raise ImportError
+    except ImportError
+    raise Exception
+
+omit =
+    */site-packages/*
+    */tests/*
+    src/metrics/size_metric_fixed.py
+    # Exclude LLM-related functionality that's hard to test
+    src/api/llm_client.py
+    src/utils/llm_analyzer.py

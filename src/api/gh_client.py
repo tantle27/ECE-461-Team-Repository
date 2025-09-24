@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import os
+import random
+import re
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+# ---------------- data models ----------------
 
 
 @dataclass
@@ -18,22 +24,18 @@ class GHRepoInfo:
     description: str | None
 
 
-def _retry(fn, attempts: int = 4):
-    for i in range(attempts):
-        try:
-            return fn()
-        except Exception as e:
-            if i == attempts - 1:
-                raise e
-            time.sleep(0.4 * (2**i))
-    return None
-
-
 DEFAULT_TIMEOUT = 30  # seconds
 
 
+# ---------------- retry + session ----------------
+
+
 class _TimeoutHTTPAdapter(HTTPAdapter):
-    def __init__(self, *args, timeout: int = DEFAULT_TIMEOUT, **kwargs):
+    """HTTPAdapter that applies a default timeout and retry policy."""
+
+    def __init__(
+        self, *args, timeout: int = DEFAULT_TIMEOUT, **kwargs
+    ) -> None:
         self._timeout = timeout
         super().__init__(*args, **kwargs)
 
@@ -43,23 +45,45 @@ class _TimeoutHTTPAdapter(HTTPAdapter):
 
 
 def _retry_policy() -> Retry:
+    """Retry on transient server/network issues."""
     return Retry(
         total=5,
         connect=5,
         read=5,
         backoff_factor=0.4,
         status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset(["GET"]),
+        allowed_methods=frozenset({"GET"}),
         raise_on_status=False,
     )
 
 
+_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([-.\w]+)/([-.\w]+)", re.I)
+
+
+def normalize_and_verify_github(
+    gh: GHClient, urls: Iterable[str]
+) -> list[str]:
+    valid: list[str] = []
+    for u in urls:
+        m = _GITHUB_REPO_RE.match(u or "")
+        if not m:
+            continue
+        owner, repo = m.group(1), m.group(2)
+        info = gh.get_repo(owner, repo)
+        if info is not None:
+            valid.append(f"https://github.com/{owner}/{repo}")
+    return list(dict.fromkeys(valid))
+
+
 def _make_session(token: Optional[str]) -> requests.Session:
-    s = requests.Session()
-    adapter = _TimeoutHTTPAdapter(max_retries=_retry_policy(),
-                                  timeout=DEFAULT_TIMEOUT)
-    s.mount("https://", adapter)
-    s.mount("http://", adapter)
+    """Build a requests session with headers, timeout, and retry policy."""
+    session = requests.Session()
+    adapter = _TimeoutHTTPAdapter(
+        max_retries=_retry_policy(),
+        timeout=DEFAULT_TIMEOUT,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
 
     headers = {
         "Accept": "application/vnd.github+json",
@@ -68,14 +92,45 @@ def _make_session(token: Optional[str]) -> requests.Session:
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    s.headers.update(headers)
-    return s
+    session.headers.update(headers)
+    return session
+
+
+# ---------------- rate limit helpers ----------------
+
+
+def _sleep_until_reset(resp: requests.Response) -> None:
+    remaining, reset = resp.headers.get(
+        "X-RateLimit-Remaining"
+    ), resp.headers.get("X-RateLimit-Reset")
+    if remaining == "0" and reset is not None:
+        try:
+            delay = max(0, int(reset) - int(time.time())) + random.uniform(
+                0.25, 0.75
+            )
+            time.sleep(min(delay, 60.0))  # cap long sleeps
+            return
+        except ValueError:
+            pass
+
+    time.sleep(2.0)
+
+
+def _etag_key(url: str) -> str:
+    return f"ETAG::{url}"
+
+
+# ---------------- client ----------------
 
 
 class GHClient:
+    """Lightweight GitHub client with ETag and basic rate-limit awareness."""
+
     def __init__(self) -> None:
         token = os.getenv("GITHUB_TOKEN")
         self._http = _make_session(token)
+        # Tiny in-memory ETag cache; swap with persistent storage if needed.
+        self._etag_cache: dict[str, str] = {}
 
     # -------- public --------
 
@@ -97,10 +152,20 @@ class GHClient:
             return None
         return self._get_text_absolute(data["download_url"])
 
-    def list_contributors(self, owner: str, repo: str) -> list[dict[str, Any]]:
+    def list_contributors(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        max_pages: int = 3,
+    ) -> list[dict[str, Any]]:
+        """
+        Paginate conservatively to avoid burning quota.
+        max_pages=3 → up to 300 contributors.
+        """
         items: list[dict[str, Any]] = []
         page = 1
-        while True:
+        while page <= max_pages:
             batch = self._get_json(
                 f"/repos/{owner}/{repo}/contributors?per_page=100&page={page}"
             )
@@ -114,23 +179,45 @@ class GHClient:
 
     # -------- internals --------
 
-    def _get_text_absolute(self, url: str) -> str | None:
-        def _go():
-            r = self._http.get(url)
-            if r.status_code == 404:
-                return None
-            r.raise_for_status()
-            return r.text
+    def _github_get(
+        self, url: str, *, use_etag: bool = True
+    ) -> requests.Response:
+        headers: dict[str, str] = {}
+        if use_etag:
+            etag = self._etag_cache.get(_etag_key(url))
+            if etag:
+                headers["If-None-Match"] = etag
 
-        return _retry(_go)
+        resp = self._http.get(url, headers=headers)
+
+        if resp.status_code in (403, 429):
+            _sleep_until_reset(resp)
+            resp = self._http.get(url, headers=headers)
+
+        # Cache ETag on success
+        if resp.status_code == 200:
+            new_etag = resp.headers.get("ETag")
+            if new_etag:
+                self._etag_cache[_etag_key(url)] = new_etag
+
+        return resp
+
+    def _get_text_absolute(self, url: str) -> str | None:
+        # For raw.githubusercontent URLs and readme download_url
+        resp = self._github_get(url, use_etag=True)
+        if resp.status_code == 304:
+            return None  # unchanged since last time
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.text
 
     def _get_json(self, path: str) -> dict | list | None:
-        def _go():
-            url = urljoin("https://api.github.com", path)
-            r = self._http.get(url)
-            if r.status_code == 404:
-                return None
-            r.raise_for_status()
-            return r.json()
-
-        return _retry(_go)
+        url = urljoin("https://api.github.com", path)
+        resp = self._github_get(url, use_etag=True)
+        if resp.status_code == 304:
+            return None  # unchanged; skip work
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
