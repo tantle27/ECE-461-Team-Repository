@@ -125,7 +125,7 @@ class GitHubMatcher:
         s = (s or "").lower()
         for pre in ("hf-", "huggingface-", "the-"):
             if s.startswith(pre):
-                s = s[len(pre) :]
+                s = s[len(pre):]
         for suf in (
             "-dev",
             "-devkit",

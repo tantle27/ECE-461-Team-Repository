@@ -9,7 +9,6 @@ import os
 import time
 from typing import Any, Dict
 from .base_metric import BaseMetric
-from repo_context import RepoContext
 
 try:
     from dulwich import porcelain as dl_p

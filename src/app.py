@@ -17,7 +17,7 @@ from handlers import (
     build_model_context,
 )
 from metric_eval import MetricEval, init_metrics, init_weights
-from net_scorer import _emit_ndjson, NetScorer
+from net_scorer import NetScorer
 from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 

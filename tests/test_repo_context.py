@@ -2,7 +2,6 @@
 Unit tests for RepoContext class (updated for current implementation).
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 import sys
 import os
@@ -16,6 +15,7 @@ try:
 except Exception:  # Fallback if imports fail during refactors
     RepoContext = MagicMock
     FileInfo = MagicMock
+
     def find_code_repo_url(*_, **__):  # noqa: D401
         """stub"""
         return None
