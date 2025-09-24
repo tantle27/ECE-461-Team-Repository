@@ -1,4 +1,4 @@
-"""Thin URL handlers that build RepoContext objects using API clients."""
+"""Thin URL handlers that build RepoContext via public API clients."""
 
 from __future__ import annotations
 
@@ -8,18 +8,14 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from api.gh_client import GHClient
-from api.hf_client import (GatedRepoError, HFClient, HfHubHTTPError,
-                           RepositoryNotFoundError)
+from api.hf_client import HFClient
 from repo_context import FileInfo, RepoContext
 from url_router import UrlRouter, UrlType
 
-# ----------------------------
-# Utilities
-# ----------------------------
 
+# ---------------- Utilities ----------------
 
 def _retry_loop(max_retries: int = 3, base_delay: float = 1.0):
-    """Generator that yields attempt and sleeps with backoff on next loop."""
     delay = base_delay
     for attempt in range(max_retries):
         yield attempt
@@ -33,47 +29,35 @@ def _safe_ext(path_str: str) -> str:
     return sfx[1:].lower() if sfx.startswith(".") else sfx.lower()
 
 
-# ----------------------------
-# Base
-# ----------------------------
-
+# ---------------- Base ----------------
 
 class UrlHandler:
-    """Base class for URL handlers."""
-
     def __init__(self, url: Optional[str] = None):
         self.url = url
 
-    def fetchMetaData(self) -> RepoContext:
-        raise NotImplementedError(
-            "fetchMetaData must be implemented by subclasses"
-        )
+    def fetchMetaData(self) -> RepoContext:  # noqa: N802
+        raise NotImplementedError
 
 
-# ----------------------------
-# MODEL (Hugging Face)
-# ----------------------------
-
+# ---------------- MODEL (HF) ----------------
 
 class ModelUrlHandler(UrlHandler):
-    """Handler for Hugging Face model URLs."""
-
     def __init__(self, url: Optional[str] = None):
         super().__init__(url)
         self.hf_client = HFClient()
         self.gh_client = GHClient()
 
-    def fetchMetaData(self) -> RepoContext:
+    def fetchMetaData(self) -> RepoContext:  # noqa: N802
         if not self.url:
             raise ValueError("URL is required")
 
         parsed = UrlRouter().parse(self.url)
         if parsed.type is not UrlType.MODEL or not parsed.hf_id:
-            raise ValueError("URL is not a Hugging Face model URL")
+            raise ValueError("Not an HF model URL")
 
         ctx = RepoContext(url=self.url, hf_id=parsed.hf_id, host="HF")
 
-        for attempt in _retry_loop(max_retries=3, base_delay=1.0):
+        for attempt in _retry_loop(3, 1.0):
             try:
                 info = self.hf_client.get_model_info(parsed.hf_id)
                 ctx.card_data = info.card_data
@@ -86,9 +70,8 @@ class ModelUrlHandler(UrlHandler):
                 ctx.gated = info.gated
                 ctx.private = info.private
 
-                files = (
-                    self.hf_client.list_files(parsed.hf_id, repo_type="model")
-                    or []
+                files = self.hf_client.list_files(
+                    parsed.hf_id, repo_type="model"
                 )
                 ctx.files = [
                     FileInfo(
@@ -96,36 +79,41 @@ class ModelUrlHandler(UrlHandler):
                         size_bytes=int(fi.size or 0),
                         ext=_safe_ext(fi.path),
                     )
-                    for fi in files
+                    for fi in (files or [])
                 ]
 
-                ctx.readme_text = self.hf_client.get_readme(parsed.hf_id) or ""
+                ctx.readme_text = self.hf_client.get_readme(
+                    parsed.hf_id
+                ) or ""
                 ctx.model_index = self.hf_client.get_model_index_json(
                     parsed.hf_id
                 )
 
-                # ---------- Linked code (GitHub) ----------
+                # Linked code (GitHub)
                 try:
                     ctx.hydrate_code_links(self.hf_client, self.gh_client)
                     if ctx.gh_url:
-                        code_ctx = build_code_context(
-                            ctx.gh_url
-                        )  # fully hydrate
-                        ctx.link_code(code_ctx)  # attach for metrics/persist
+                        code_ctx = build_code_context(ctx.gh_url)
+                        ctx.link_code(code_ctx)
                         if code_ctx.contributors:
                             ctx.contributors = code_ctx.contributors
                 except Exception as e:
                     ctx.api_errors += 1
-                    ctx.fetch_logs.append(f"Hydrate linked code failed: {e}")
+                    ctx.fetch_logs.append(
+                        f"Linked code hydrate failed: {e}"
+                    )
 
-                # ---------- Linked datasets (HF) ----------
+                # Linked datasets (HF)
                 try:
                     ds_ids = set()
-                    ds_ids.update(
-                        datasets_from_card(ctx.card_data or {}, ctx.tags or [])
+                    ds_ids |= set(
+                        datasets_from_card(
+                            ctx.card_data or {}, ctx.tags or []
+                        )
                     )
-                    ds_ids.update(datasets_from_readme(ctx.readme_text or ""))
-
+                    ds_ids |= set(
+                        datasets_from_readme(ctx.readme_text or "")
+                    )
                     for did in ds_ids:
                         ds_url = f"https://huggingface.co/datasets/{did}"
                         try:
@@ -138,46 +126,29 @@ class ModelUrlHandler(UrlHandler):
                             )
                 except Exception as e:
                     ctx.api_errors += 1
-                    ctx.fetch_logs.append(f"Dataset discovery error: {e}")
+                    ctx.fetch_logs.append(
+                        f"Dataset discovery error: {e}"
+                    )
 
-                break  # success → exit retry loop
+                break  # success
 
-            except GatedRepoError as e:
-                ctx.gated = True
-                ctx.api_errors += 1
-                ctx.fetch_logs.append(f"HF gated: {e}")
-                break
-
-            except RepositoryNotFoundError as e:
+            except FileNotFoundError as e:
                 ctx.api_errors += 1
                 ctx.fetch_logs.append(f"HF not found: {e}")
                 raise
-
-            except HfHubHTTPError as e:
-                # Handle 429 with retry; otherwise record and stop
-                msg = str(e)
+            except Exception as e:
+                # 429/backoff is handled by HTTP retries; keep one more loop
                 ctx.api_errors += 1
-                if "429" in msg and attempt < 2:
-                    ctx.fetch_logs.append(
-                        "HF 429 rate limited; backing off and retrying..."
-                    )
-                    continue
-                ctx.fetch_logs.append(f"HF HTTP error: {e}")
-                if "429" not in msg:
-                    raise
-                break
+                ctx.fetch_logs.append(f"HF error: {e}")
+                if attempt >= 2:
+                    break
 
         return ctx
 
 
-# ----------------------------
-# DATASET (Hugging Face)
-# ----------------------------
-
+# ---------------- DATASET (HF) ----------------
 
 class DatasetUrlHandler(UrlHandler):
-    """Handler for Hugging Face dataset URLs."""
-
     def __init__(self, url: Optional[str] = None):
         super().__init__(url)
         self.hf_client = HFClient()
@@ -188,11 +159,11 @@ class DatasetUrlHandler(UrlHandler):
 
         parsed = UrlRouter().parse(self.url)
         if parsed.type is not UrlType.DATASET or not parsed.hf_id:
-            raise ValueError("URL is not a Hugging Face dataset URL")
+            raise ValueError("Not an HF dataset URL")
 
         ctx = RepoContext(url=self.url, hf_id=parsed.hf_id, host="HF")
 
-        for attempt in _retry_loop(max_retries=3, base_delay=1.0):
+        for attempt in _retry_loop(3, 1.0):
             try:
                 info = self.hf_client.get_dataset_info(parsed.hf_id)
                 ctx.card_data = info.card_data
@@ -205,44 +176,26 @@ class DatasetUrlHandler(UrlHandler):
                 ctx.gated = info.gated
                 ctx.private = info.private
 
-                ctx.readme_text = self.hf_client.get_readme(parsed.hf_id) or ""
+                ctx.readme_text = (
+                    self.hf_client.get_readme(parsed.hf_id) or ""
+                )
                 break
-
-            except GatedRepoError as e:
-                ctx.gated = True
-                ctx.api_errors += 1
-                ctx.fetch_logs.append(f"HF gated: {e}")
-                break
-
-            except RepositoryNotFoundError as e:
+            except FileNotFoundError as e:
                 ctx.api_errors += 1
                 ctx.fetch_logs.append(f"HF not found: {e}")
                 raise
-
-            except HfHubHTTPError as e:
-                msg = str(e)
+            except Exception as e:
                 ctx.api_errors += 1
-                if "429" in msg and attempt < 2:
-                    ctx.fetch_logs.append(
-                        "HF 429 rate limited; backing off and retrying..."
-                    )
-                    continue
-                ctx.fetch_logs.append(f"HF HTTP error: {e}")
-                if "429" not in msg:
-                    raise
-                break
+                ctx.fetch_logs.append(f"HF error: {e}")
+                if attempt >= 2:
+                    break
 
         return ctx
 
 
-# ----------------------------
-# CODE (GitHub)
-# ----------------------------
-
+# ---------------- CODE (GitHub) ----------------
 
 class CodeUrlHandler(UrlHandler):
-    """Handler for GitHub repository URLs."""
-
     def __init__(self, url: Optional[str] = None):
         super().__init__(url)
         self.gh_client = GHClient()
@@ -253,7 +206,7 @@ class CodeUrlHandler(UrlHandler):
 
         parsed = UrlRouter().parse(self.url)
         if not parsed.gh_owner_repo:
-            raise ValueError("URL is not a GitHub repository URL")
+            raise ValueError("Not a GitHub repo URL")
 
         owner, repo = parsed.gh_owner_repo
         ctx = RepoContext(
@@ -263,19 +216,17 @@ class CodeUrlHandler(UrlHandler):
         )
 
         try:
-            # Basic repo info
             info = self.gh_client.get_repo(owner, repo)
             if not info:
                 ctx.api_errors += 1
                 ctx.fetch_logs.append(
-                    f"GitHub: repo {owner}/{repo} not found or not accessible"
+                    f"GitHub repo {owner}/{repo} not found"
                 )
                 return ctx
 
             ctx.private = (
                 bool(getattr(info, "private", None))
-                if info.private is not None
-                else None
+                if info.private is not None else None
             )
             ctx.card_data = {
                 "default_branch": getattr(info, "default_branch", None),
@@ -289,7 +240,7 @@ class CodeUrlHandler(UrlHandler):
                     ctx.readme_text = readme
             except Exception as re_err:
                 ctx.api_errors += 1
-                ctx.fetch_logs.append(f"GitHub: readme error: {re_err}")
+                ctx.fetch_logs.append(f"GitHub readme error: {re_err}")
 
             # Contributors
             try:
@@ -303,39 +254,37 @@ class CodeUrlHandler(UrlHandler):
                 ]
             except Exception as ce:
                 ctx.api_errors += 1
-                ctx.fetch_logs.append(f"GitHub: contributors error: {ce}")
-
-            # Files (best-effort: repo tree)
-            try:
-                default_branch = (
-                    getattr(info, "default_branch", "main") or "main"
+                ctx.fetch_logs.append(
+                    f"GitHub contributors error: {ce}"
                 )
+
+            # Files tree (best-effort)
+            try:
+                branch = getattr(info, "default_branch", "main") or "main"
                 tree = None
                 if hasattr(self.gh_client, "get_repo_tree"):
                     tree = self.gh_client.get_repo_tree(
-                        owner, repo, default_branch, recursive=True
+                        owner, repo, branch, recursive=True
                     )
                 elif hasattr(self.gh_client, "list_tree"):
                     tree = self.gh_client.list_tree(
-                        owner, repo, default_branch, recursive=True
+                        owner, repo, branch, recursive=True
                     )
-
                 if tree:
                     files = []
-                    for node in tree:
-                        if (node.get("type") == "blob") and node.get("path"):
-                            p = node["path"]
+                    for n in tree:
+                        if n.get("type") == "blob" and n.get("path"):
+                            p = n["path"]
                             files.append(
                                 FileInfo(
                                     path=Path(p),
-                                    size_bytes=int(node.get("size") or 0),
+                                    size_bytes=int(n.get("size") or 0),
                                     ext=_safe_ext(p),
                                 )
                             )
                     ctx.files = files
             except Exception as te:
-                # File tree is nice-to-have; don’t fail the context
-                ctx.fetch_logs.append(f"GitHub: tree/files error: {te}")
+                ctx.fetch_logs.append(f"GitHub tree error: {te}")
 
             return ctx
 
@@ -345,15 +294,12 @@ class CodeUrlHandler(UrlHandler):
             return ctx
 
 
-# ----------------------------
-# Dataset discovery helpers
-# ----------------------------
+# ---------------- Dataset discovery helpers ----------------
 
 _DATASET_RE = re.compile(
     r"""
     (?:
-        https?://(?:www\.)?huggingface\.co/datasets/   # full URL
-      | \bdatasets?\/
+        https?://(?:www\.)?huggingface\.co/datasets/ | \bdatasets?\/
     )
     (?P<org>[A-Za-z0-9_.-]+)\/(?P<name>[A-Za-z0-9_.-]+)
     """,
@@ -366,8 +312,7 @@ def _norm_id(s: str) -> str:
 
 
 def _uniq_keep_order(xs: Iterable[str]) -> list[str]:
-    seen = set()
-    out = []
+    seen, out = set(), []
     for x in xs:
         if x not in seen:
             seen.add(x)
@@ -378,13 +323,6 @@ def _uniq_keep_order(xs: Iterable[str]) -> list[str]:
 def datasets_from_card(
     card_data: dict | None, tags: list[str] | None
 ) -> list[str]:
-    """
-    Pull dataset ids from HF model card (YAML front-matter) and tags.
-    Accepts either:
-      card_data['datasets'] -> list[str]  (preferred)
-      or tags containing 'dataset:<id>'   (fallback)
-    Returns canonical 'org/name' strings.
-    """
     out: list[str] = []
     if isinstance(card_data, dict):
         ds = card_data.get("datasets")
@@ -402,10 +340,6 @@ def datasets_from_card(
 
 
 def datasets_from_readme(readme_text: str | None) -> list[str]:
-    """
-    Look for dataset links/mentions inside README markdown.
-    Returns canonical 'org/name' strings.
-    """
     if not readme_text:
         return []
     out: list[str] = []
@@ -416,10 +350,7 @@ def datasets_from_readme(readme_text: str | None) -> list[str]:
     return _uniq_keep_order(out)
 
 
-# ----------------------------
-# Builders (public helpers)
-# ----------------------------
-
+# ---------------- Builders ----------------
 
 def build_model_context(url: str) -> RepoContext:
     return ModelUrlHandler(url).fetchMetaData()
