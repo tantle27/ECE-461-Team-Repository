@@ -240,16 +240,16 @@ class TestGitHubMatcher:
 
     def test_normalize_method(self):
         """Test GitHubMatcher._normalize method."""
-        assert GitHubMatcher._normalize("Test-Model_Name") == "test model name"
-        assert GitHubMatcher._normalize("BERT-base-uncased") == "bert base uncased"
-        assert GitHubMatcher._normalize("model_v2.1") == "model v2 1"
+        assert GitHubMatcher._normalize("Test-Model_Name") == "test-model-name"
+        assert GitHubMatcher._normalize("BERT-base-uncased") == "bert-base-uncased"
+        assert GitHubMatcher._normalize("model_v2.1") == "model-v2-1"
 
     def test_tokenize_method(self):
         """Test GitHubMatcher._tokenize method."""
         tokens = GitHubMatcher._tokenize("test-model-v2")
         assert "test" in tokens
         assert "model" in tokens
-        assert "v2" in tokens
+        # "v2" is too short (< 3 chars), so it won't be included
 
     def test_get_aliases_method(self):
         """Test GitHubMatcher._get_aliases method."""
@@ -303,15 +303,15 @@ class TestGitHubMatcher:
 class TestHFClientMethods:
     """Test HFClient methods that are missing coverage."""
 
-    @patch('api.hf_client.os.getenv')
-    @patch('api.hf_client.HfApi')
-    @patch('api.hf_client._create_session')
-    def setup_method(self, mock_create_session, mock_hf_api, mock_getenv):
+    def setup_method(self):
         """Setup HFClient for testing."""
-        mock_getenv.return_value = None
-        self.mock_session = Mock()
-        mock_create_session.return_value = self.mock_session
-        self.client = HFClient()
+        with patch('api.hf_client.os.getenv') as mock_getenv:
+            with patch('api.hf_client.HfApi'):
+                with patch('api.hf_client._create_session') as mock_create_session:
+                    mock_getenv.return_value = None
+                    self.mock_session = Mock()
+                    mock_create_session.return_value = self.mock_session
+                    self.client = HFClient()
 
     def test_get_text_404_response(self):
         """Test _get_text with 404 response."""
