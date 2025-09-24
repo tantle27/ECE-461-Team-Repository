@@ -48,22 +48,33 @@ class LLMClient:
             self._genai_model = os.getenv("GENAI_MODEL", "llama3.1:latest")
         # else remains None
 
-    def ask_json(self, system: str, prompt: str, *, max_tokens: int = 800, temperature: float = 0.0) -> LLMResult:
+    def ask_json(
+        self,
+        system: str,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        temperature: float = 0.0
+    ) -> LLMResult:
         if not self.provider:
-            return LLMResult(False, None, None, "No LLM provider configured", 0)
+            return LLMResult(
+                False, None, None, "No LLM provider configured", 0)
 
         start = time.time()
         try:
             raw = ""
             if self.provider == "purdue_genai":
-                raw = self._call_purdue_genai(system, prompt, max_tokens, temperature)
+                raw = self._call_purdue_genai(
+                    system, prompt, max_tokens, temperature)
             else:
                 raise RuntimeError(f"Unsupported provider: {self.provider}")
 
             parsed = _clamp_json_object(raw)
-            return LLMResult(True, parsed, raw, None, int((time.time() - start) * 1000))
+            return LLMResult(
+                True, parsed, raw, None, int((time.time() - start) * 1000))
         except Exception as e:
-            return LLMResult(False, None, None, str(e), int((time.time() - start) * 1000))
+            return LLMResult(
+                False, None, None, str(e), int((time.time() - start) * 1000))
     # ---- providers ----
 
     def _call_purdue_genai(

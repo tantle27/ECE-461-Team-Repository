@@ -11,6 +11,8 @@ try:
     from api.llm_client import LLMClient
 except Exception:
     LLMClient = None
+import logging
+logger = logging.getLogger("acme-cli")
 
 
 def _c01(x: Any) -> float:
@@ -54,12 +56,12 @@ class CodeQualityMetric(BaseMetric):
         files = self._files(ctx)
         readme = self._readme(ctx)
         base = self._base_score(readme, files)
-
         llm_ready = (
             self._use_llm and self._llm and
             getattr(self._llm, "provider", None)
         )
         if not llm_ready:
+            logger.info("CodeQuality LLM not ready, using base score only.")
             return base
 
         signals = self._signals(readme, files)
@@ -76,6 +78,10 @@ class CodeQualityMetric(BaseMetric):
         try:
             llm, parts = self._llm_score(readme, files, signals)
             repo_context["_code_quality_llm_parts"] = parts
+            logger.info(
+                f"CodeQuality LLM parts: {parts}, cov={cov:.3f}, "
+                f"var={var:.3f}, llm_w={llm_w:.3f}"
+            )
             return _c01((1 - llm_w) * base + llm_w * llm)
         except Exception:
             return base
