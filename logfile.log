@@ -1,0 +1,62 @@
+2025-09-24 13:48:25,847 [INFO] acme-cli: logging: file=/mnt/c/Users/jldee/Documents/.Purdue Documents/ECE 46100 (Software Engineering)/ECE-461-Team-Repository/logfile.log level=DEBUG
+2025-09-24 13:48:25,886 [INFO] acme-cli: run start: urls=1 db=/mnt/c/Users/jldee/Documents/.Purdue Documents/ECE 46100 (Software Engineering)/ECE-461-Team-Repository/.acme/state.sqlite
+2025-09-24 13:48:25,887 [DEBUG] acme-cli: urls=['https://huggingface.co/microsoft/VibeVoice-1.5B']
+2025-09-24 13:48:25,889 [DEBUG] acme-cli.gh_client: GHClient initialized (token=absent)
+2025-09-24 13:48:25,911 [DEBUG] urllib3.connectionpool: Starting new HTTPS connection (1): huggingface.co:443
+2025-09-24 13:48:26,727 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /api/models/microsoft/vibevoice-1.5b HTTP/1.1" 307 71
+2025-09-24 13:48:27,039 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /api/models/microsoft/VibeVoice-1.5B HTTP/1.1" 200 2658
+2025-09-24 13:48:27,139 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /api/models/microsoft/vibevoice-1.5b HTTP/1.1" 307 71
+2025-09-24 13:48:27,420 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /api/models/microsoft/VibeVoice-1.5B HTTP/1.1" 200 2658
+2025-09-24 13:48:27,578 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /microsoft/vibevoice-1.5b/raw/main/README.md HTTP/1.1" 307 79
+2025-09-24 13:48:27,723 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /microsoft/VibeVoice-1.5B/raw/main/README.md HTTP/1.1" 200 7273
+2025-09-24 13:48:27,878 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /microsoft/vibevoice-1.5b/raw/main/model_index.json HTTP/1.1" 307 86
+2025-09-24 13:48:28,165 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /microsoft/VibeVoice-1.5B/raw/main/model_index.json HTTP/1.1" 404 15
+2025-09-24 13:48:28,377 [DEBUG] urllib3.connectionpool: https://huggingface.co:443 "GET /datasets/microsoft/vibevoice-1.5b/raw/main/model_index.json HTTP/1.1" 401 29
+2025-09-24 13:48:28,379 [DEBUG] acme-cli.gh_client: GET https://api.github.com/repos/microsoft/VibeVoice
+2025-09-24 13:48:28,397 [DEBUG] urllib3.connectionpool: Starting new HTTPS connection (1): api.github.com:443
+2025-09-24 13:48:29,373 [DEBUG] urllib3.connectionpool: https://api.github.com:443 "GET /repos/microsoft/VibeVoice HTTP/1.1" 200 1433
+2025-09-24 13:48:29,376 [DEBUG] acme-cli.gh_client: Cached ETag for https://api.github.com/repos/microsoft/VibeVoice
+2025-09-24 13:48:29,377 [DEBUG] acme-cli.gh_client: get_repo: microsoft/VibeVoice -> ok
+2025-09-24 13:48:29,379 [DEBUG] acme-cli.gh_client: GHClient initialized (token=absent)
+2025-09-24 13:48:29,380 [DEBUG] acme-cli.gh_client: GET https://api.github.com/repos/microsoft/vibevoice
+2025-09-24 13:48:29,406 [DEBUG] urllib3.connectionpool: Starting new HTTPS connection (1): api.github.com:443
+2025-09-24 13:48:30,454 [DEBUG] urllib3.connectionpool: https://api.github.com:443 "GET /repos/microsoft/vibevoice HTTP/1.1" 200 1433
+2025-09-24 13:48:30,456 [DEBUG] acme-cli.gh_client: Cached ETag for https://api.github.com/repos/microsoft/vibevoice
+2025-09-24 13:48:30,457 [DEBUG] acme-cli.gh_client: get_repo: microsoft/vibevoice -> ok
+2025-09-24 13:48:30,457 [DEBUG] acme-cli.gh_client: GET https://api.github.com/repos/microsoft/vibevoice/readme
+2025-09-24 13:48:30,768 [DEBUG] urllib3.connectionpool: https://api.github.com:443 "GET /repos/microsoft/vibevoice/readme HTTP/1.1" 200 4017
+2025-09-24 13:48:30,772 [DEBUG] acme-cli.gh_client: Cached ETag for https://api.github.com/repos/microsoft/vibevoice/readme
+2025-09-24 13:48:30,774 [DEBUG] acme-cli.gh_client: get_readme_markdown: downloading raw readme https://raw.githubusercontent.com/microsoft/VibeVoice/main/README.md
+2025-09-24 13:48:30,776 [DEBUG] acme-cli.gh_client: GET https://raw.githubusercontent.com/microsoft/VibeVoice/main/README.md
+2025-09-24 13:48:30,806 [DEBUG] urllib3.connectionpool: Starting new HTTPS connection (1): raw.githubusercontent.com:443
+2025-09-24 13:48:31,546 [DEBUG] urllib3.connectionpool: https://raw.githubusercontent.com:443 "GET /microsoft/VibeVoice/main/README.md HTTP/1.1" 200 2322
+2025-09-24 13:48:31,547 [DEBUG] acme-cli.gh_client: Cached ETag for https://raw.githubusercontent.com/microsoft/VibeVoice/main/README.md
+2025-09-24 13:48:31,548 [DEBUG] acme-cli.gh_client: list_contributors: page 1 for microsoft/vibevoice
+2025-09-24 13:48:31,549 [DEBUG] acme-cli.gh_client: GET https://api.github.com/repos/microsoft/vibevoice/contributors?per_page=100&page=1
+2025-09-24 13:48:31,774 [DEBUG] urllib3.connectionpool: https://api.github.com:443 "GET /repos/microsoft/vibevoice/contributors?per_page=100&page=1 HTTP/1.1" 200 355
+2025-09-24 13:48:31,775 [DEBUG] acme-cli.gh_client: Cached ETag for https://api.github.com/repos/microsoft/vibevoice/contributors?per_page=100&page=1
+2025-09-24 13:48:31,776 [DEBUG] acme-cli.gh_client: list_contributors: total=1 for microsoft/vibevoice
+2025-09-24 13:48:31,785 [INFO] acme-cli: context: built category=MODEL url=https://huggingface.co/microsoft/VibeVoice-1.5B (5896.6 ms)
+2025-09-24 13:48:31,786 [DEBUG] acme-cli: context summary: {'url': 'https://huggingface.co/microsoft/VibeVoice-1.5B', 'hf_id': 'microsoft/vibevoice-1.5b', 'gh_url': 'https://github.com/microsoft/VibeVoice', 'host': 'HF', 'files': 9, 'tags': 14, 'contributors': 1, 'has_readme': True, 'repo_path': None}
+2025-09-24 13:48:31,787 [INFO] acme-cli: persist: category=MODEL key=microsoft/vibevoice-1.5b url=microsoft/vibevoice-1.5b
+2025-09-24 13:48:31,932 [INFO] acme-cli: persisted: id=3 category=MODEL files=9
+2025-09-24 13:48:31,960 [INFO] acme-cli: persist done: id=3 category=MODEL key=microsoft/vibevoice-1.5b
+2025-09-24 13:48:32,036 [INFO] acme-cli: persist ok: id=3 category=MODEL url=https://huggingface.co/microsoft/VibeVoice-1.5B
+2025-09-24 13:48:32,037 [INFO] acme-cli: eval: id=3 category=MODEL url=microsoft/vibevoice-1.5b
+2025-09-24 13:48:32,595 [DEBUG] acme-cli: metrics=['BusFactor', 'CodeQuality', 'CommunityRating', 'DatasetAvailability', 'DatasetQuality', 'License', 'PerformanceClaims', 'RampUpTime', 'Size']
+2025-09-24 13:48:32,596 [INFO] acme-cli: [METRIC] id=3 BusFactor=0.000 (0 ms)
+2025-09-24 13:48:32,599 [INFO] acme-cli: CodeQuality LLM not ready, using base score only.
+2025-09-24 13:48:32,600 [INFO] acme-cli: [METRIC] id=3 CodeQuality=0.182 (2 ms)
+2025-09-24 13:48:32,602 [INFO] acme-cli: [METRIC] id=3 CommunityRating=0.500 (0 ms)
+2025-09-24 13:48:32,604 [INFO] acme-cli: [METRIC] id=3 DatasetAvailability=0.330 (0 ms)
+2025-09-24 13:48:32,606 [INFO] acme-cli: [METRIC] id=3 DatasetQuality=0.135 (1 ms)
+2025-09-24 13:48:32,608 [INFO] acme-cli: [METRIC] id=3 License=1.000 (0 ms)
+2025-09-24 13:48:32,610 [INFO] acme-cli: [METRIC] id=3 PerformanceClaims=0.400 (0 ms)
+2025-09-24 13:48:32,613 [INFO] acme-cli: [METRIC] id=3 RampUpTime=0.135 (1 ms)
+2025-09-24 13:48:32,614 [INFO] acme-cli: [METRIC] id=3 Size=1.000 (0 ms)
+2025-09-24 13:48:32,616 [INFO] acme-cli: [SCORE] id=3 category=MODEL net=0.352 (0 ms)
+2025-09-24 13:48:32,841 [DEBUG] acme-cli.net_scorer: metric_latencies_ms={'BusFactor': 0, 'CodeQuality': 2, 'CommunityRating': 0, 'DatasetAvailability': 0, 'DatasetQuality': 1, 'License': 0, 'PerformanceClaims': 0, 'RampUpTime': 1, 'Size': 0}
+2025-09-24 13:48:32,842 [INFO] acme-cli.net_scorer: NDJSON summary: name=vibevoice-1.5b category=MODEL net=0.35 (net_latency_ms=0)
+2025-09-24 13:48:32,842 [DEBUG] acme-cli.net_scorer: NDJSON payload={'name': 'vibevoice-1.5b', 'category': 'MODEL', 'net_score': 0.35, 'net_score_latency': 0, 'ramp_up_time': 0.14, 'ramp_up_time_latency': 1, 'bus_factor': 0.0, 'bus_factor_latency': 0, 'performance_claims': 0.4, 'performance_claims_latency': 0, 'license': 1.0, 'license_latency': 0, 'size_score': {'raspberry_pi': 0.9, 'jetson_nano': 0.95, 'desktop_pc': 1.0, 'aws_server': 1.0}, 'size_score_latency': 0, 'dataset_and_code_score': 0.26, 'dataset_and_code_score_latency': 2, 'dataset_quality': 0.14, 'dataset_quality_latency': 1, 'code_quality': 0.18, 'code_quality_latency': 2}
+2025-09-24 13:48:32,843 [INFO] acme-cli: eval done: id=3 metrics=9
+2025-09-24 13:48:32,844 [INFO] acme-cli: run end: 1/1 OK
