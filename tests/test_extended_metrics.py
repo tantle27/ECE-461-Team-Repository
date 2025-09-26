@@ -640,33 +640,9 @@ class TestRampUpTimeMetric:
         assert "ease of getting started" in description.lower()
         assert "docs" in description.lower()
 
+
 import re
-import time
 
-
-# Adjust if your import path differs
-from src.metrics.bus_factor_metric import (
-    BusFactorMetric,
-    _c01,
-    _since_cutoff,
-    _cache_dir,
-    _git_stats,
-)
-class MockRepoContext:
-    def __init__(self, **kwargs):
-        # set defaults
-        self.url = None
-        self.hf_id = None
-        self.readme_text = ""
-        self.tags = []
-        self.linked_datasets = []
-        self.linked_code = []
-        self.gh_url = None
-        self.gated = None
-        self.private = None
-        # apply provided attrs
-        for k, v in kwargs.items():
-            setattr(self, k, v)
 
 class TestBusFactorMetric:
     def setup_method(self):
@@ -701,9 +677,11 @@ class TestBusFactorMetric:
 
     def test_git_stats_calls_dulwich_stats_and_makes_cache_root(self):
         # Avoid real FS work
-        with patch("src.metrics.bus_factor_metric._cache_dir", return_value="/tmp/x123") as p_cache:
+        with patch("src.metrics.bus_factor_metric._cache_dir", 
+                   return_value="/tmp/x123") as p_cache:
             with patch("src.metrics.bus_factor_metric.os.makedirs") as p_makedirs:
-                with patch("src.metrics.bus_factor_metric._dulwich_stats", return_value={"ok": True}) as p_stats:
+                with patch("src.metrics.bus_factor_metric._dulwich_stats", 
+                           return_value={"ok": True}) as p_stats:
                     out = _git_stats("https://github.com/org/repo")
         p_cache.assert_called_once()
         p_makedirs.assert_called_once()  # ensure cache root created
@@ -820,7 +798,8 @@ class TestBusFactorMetric:
 
         fake_stats = {"total_commits": 100, "unique_authors": 5, "top_share": 0.4}
         with patch("src.metrics.bus_factor_metric._HAS_DULWICH", True):
-            with patch("src.metrics.bus_factor_metric._git_stats", return_value=fake_stats) as p_stats:
+            with patch("src.metrics.bus_factor_metric._git_stats", 
+                       return_value=fake_stats) as p_stats:
                 score = self.metric.evaluate(repo_context)
 
         # verify Dulwich used with linked_code2 gh_url
@@ -877,7 +856,8 @@ class TestBusFactorMetric:
         )
         repo_context = {"_ctx_obj": ctx, "category": "MODEL"}
         with patch("src.metrics.bus_factor_metric._HAS_DULWICH", True):
-            with patch("src.metrics.bus_factor_metric._git_stats", side_effect=RuntimeError("boom")):
+            with patch("src.metrics.bus_factor_metric._git_stats", 
+                       side_effect=RuntimeError("boom")):
                 score = self.metric.evaluate(repo_context)
         assert pytest.approx(score, rel=1e-6) == 0.5
 
@@ -898,6 +878,7 @@ class TestBusFactorMetric:
         assert "dulwich" in d
         assert "contributor" in d
         assert "sustainability" in d
+
 
 class TestDatasetAvailabilityMetric:
     """Test suite for DatasetAvailabilityMetric class."""
@@ -1143,6 +1124,7 @@ class TestDatasetQualityMetric:
             score = self.metric.evaluate(self.model_repo_context)
             expected = self.metric._combine_heuristics(0.6, 0.7, 0.5)
             assert score == expected
+
     def test_evaluate_with_llm_success(self):
         with patch.object(self.metric, "_heuristics_from_repo_context") as mock_h:
             mock_h.return_value = {
@@ -1158,6 +1140,7 @@ class TestDatasetQualityMetric:
                 data_completeness=0.4,
             )
             assert score == expected
+
     def test_llm_blend_class(self):
         from src.metrics.dataset_quality_metric import LLMBlend
 
@@ -1183,8 +1166,6 @@ class TestDatasetQualityMetric:
         assert weights.diversity == 0.3
         assert weights.completeness == 0.2
 
-
-import json
 
 class _MockFile:
     def __init__(self, path: str):
@@ -1264,6 +1245,7 @@ class TestCodeQualityMetric:
         assert s["rq"]["install"] is True
         assert s["rq"]["usage"] is True
         assert s["rq"]["fences"] >= 1
+
     def test_quant_outputs_reasonable_values(self):
         # Build a strong signal set
         files = [

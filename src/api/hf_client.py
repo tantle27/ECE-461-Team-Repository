@@ -154,7 +154,17 @@ class GitHubMatcher:
         for pre in ("hf-", "huggingface-", "the-"):
             if s.startswith(pre):
                 s = s[len(pre):]
-        for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo", "-code"):
+
+        for suf in (
+            "-dev",
+            "-devkit",
+            "-main",
+            "-release",
+            "-project",
+            "-repo",
+            "-code",
+        ):
+
             if s.endswith(suf):
                 s = s[: -len(suf)]
         return re.sub(r"[^a-z0-9]+", "-", s).strip("-")

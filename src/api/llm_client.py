@@ -128,5 +128,3 @@ class LLMClient:
             return ""
         msg = choices[0].get("message") or {}
         return msg.get("content") or ""
-
-    # ---- providers ----

@@ -314,6 +314,7 @@ class TestAppCLIFunctions:
         monkeypatch.setenv("ACME_CACHE_DIR", "/custom/cache")
         result = _user_cache_base()
         assert result == Path("/custom/cache")
+
     @patch('app.platform.system')
     def test_user_cache_base_windows(self, mock_system, monkeypatch):
         mock_system.return_value = "Windows"
@@ -497,12 +498,12 @@ class TestAppCLIFunctions:
     def test_main_all_success(self):
         """Test main function with all URLs succeeding."""
         with patch('app.read_urls') as mock_read_urls, \
-            patch('app._resolve_db_path') as mock_db_path, \
-            patch('app._ensure_path_secure'), \
-            patch('app._build_context_for_url') as mock_build_context, \
-            patch('app.persist_context') as mock_persist, \
-            patch('app._evaluate_and_persist') as mock_evaluate, \
-            patch('sys.argv', ['app.py', 'test_urls.txt']):
+             patch('app._resolve_db_path') as mock_db_path, \
+             patch('app._ensure_path_secure'), \
+             patch('app._build_context_for_url') as mock_build_context, \
+             patch('app.persist_context') as mock_persist, \
+             patch('app._evaluate_and_persist') as mock_evaluate, \
+             patch('sys.argv', ['app.py', 'test_urls.txt']):
 
             mock_read_urls.return_value = [
                 "https://huggingface.co/bert-base-uncased",
@@ -511,7 +512,13 @@ class TestAppCLIFunctions:
             mock_db_path.return_value = Path("test.db")
 
             mock_ctx1 = MagicMock(spec=RepoContext)
+            mock_ctx1.files = []
+            mock_ctx1.tags = []
+            mock_ctx1.contributors = []
             mock_ctx2 = MagicMock(spec=RepoContext)
+            mock_ctx2.files = []
+            mock_ctx2.tags = []
+            mock_ctx2.contributors = []
             mock_build_context.side_effect = [
                 ("MODEL", mock_ctx1),
                 ("MODEL", mock_ctx2)
@@ -524,6 +531,7 @@ class TestAppCLIFunctions:
             assert mock_build_context.call_count == 2
             assert mock_persist.call_count == 2
             assert mock_evaluate.call_count == 2
+
 
 class TestAppMainFunction:
     """Comprehensive tests for the main() function in app.py."""
@@ -558,9 +566,17 @@ class TestAppMainFunction:
             "https://github.com/pytorch/pytorch"
         ]
         mock_resolve_db.return_value = Path("/tmp/test.db")
+        mock_ctx1 = MagicMock(spec=RepoContext)
+        mock_ctx1.files = []
+        mock_ctx1.tags = []
+        mock_ctx1.contributors = []
+        mock_ctx2 = MagicMock(spec=RepoContext)
+        mock_ctx2.files = []
+        mock_ctx2.tags = []
+        mock_ctx2.contributors = []
         mock_build_context.side_effect = [
-            ("MODEL", MagicMock(spec=RepoContext)),
-            ("CODE", MagicMock(spec=RepoContext))
+            ("MODEL", mock_ctx1),
+            ("CODE", mock_ctx2)
         ]
         mock_persist.side_effect = [1, 2]
 
@@ -593,10 +609,18 @@ class TestAppMainFunction:
             "https://github.com/pytorch/pytorch"
         ]
         mock_resolve_db.return_value = Path("/tmp/test.db")
+        mock_ctx1 = MagicMock(spec=RepoContext)
+        mock_ctx1.files = []
+        mock_ctx1.tags = []
+        mock_ctx1.contributors = []
+        mock_ctx3 = MagicMock(spec=RepoContext)
+        mock_ctx3.files = []
+        mock_ctx3.tags = []
+        mock_ctx3.contributors = []
         mock_build_context.side_effect = [
-            ("MODEL", MagicMock(spec=RepoContext)),
+            ("MODEL", mock_ctx1),
             ValueError("Unsupported URL type"),
-            ("CODE", MagicMock(spec=RepoContext))
+            ("CODE", mock_ctx3)
         ]
         mock_persist.side_effect = [1, 3]
 

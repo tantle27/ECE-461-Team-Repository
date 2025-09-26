@@ -29,14 +29,25 @@ logger = logging.getLogger("acme-cli")
 
 def setup_logging() -> None:
     """
-    Configure logging via env:
-      LOG_FILE  -> path to log file (absent = disable)
+    Configure logging via env. REQUIRED:
+      LOG_FILE must be set and writable.
       LOG_LEVEL -> 0=silent, 1=info, 2=debug, default "0.3" ~ WARNING
+    On any failure here, exit(1).
     """
     log_file = os.getenv("LOG_FILE")
     if not log_file:
-        logging.disable(logging.CRITICAL)
-        return
+        # print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        p = Path(log_file)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # Check writability explicitly
+        with open(p, "a", encoding="utf-8"):
+            pass
+    except Exception:
+        # print(f"ERROR: cannot open LOG_FILE '{log_file}': {e}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         val = float(os.getenv("LOG_LEVEL", "0.3"))
@@ -52,15 +63,33 @@ def setup_logging() -> None:
     else:
         level = logging.DEBUG
 
-    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=log_file,
         filemode="a",
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    logger.info("logging: file=%s level=%s", log_file,
-                logging.getLevelName(level))
+
+    logger.info("logging initialized: file=%s level=%s", log_file, logging.getLevelName(level))
+
+
+def _require_valid_github_token() -> str:
+    """
+    Enforces presence of a plausibly valid GitHub token in $GITHUB_TOKEN.
+    We can't check server-side validity here, but we can reject obviously bad values.
+    Exits(1) on failure.
+    """
+    tok = os.getenv("GITHUB_TOKEN", "")
+    if not tok:
+        # print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
+        sys.exit(1)
+
+    # Accept common formats: legacy 'ghp_' or modern 'github_pat_'
+    if not (tok.startswith("ghp_") or tok.startswith("github_pat_")):
+        # print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
+        sys.exit(1)
+
+    return tok
 
 
 # ---------------- CLI + Paths ----------------
@@ -75,10 +104,10 @@ def read_urls(arg: str) -> list[str]:
                 urls.extend(p for p in parts if p)
             return urls
     except FileNotFoundError:
-        print(f"Error: File '{arg}' not found.", file=sys.stderr)
+        # print(f"Error: File '{arg}' not found.", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
-        print(f"Error reading file '{arg}': {e}", file=sys.stderr)
+    except Exception:
+        # print(f"Error reading file '{arg}': {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -231,10 +260,14 @@ def _evaluate_and_persist(
     finally:
         conn.close()
 
-    _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
-    print(f"[EVAL] {category:<7} id={rid} net={net:.3f} url={url_disp}")
-    logger.info("eval done: id=%s metrics=%d", rid, len(scores))
-
+    _emit_ndjson(
+        ctx=ctx,
+        category=category,
+        per_metric=per_metric_scores,
+        net=net,
+        per_metric_lat_ms={name: 0 for name in per_metric_scores},  # ok to start at 0
+        net_latency_ms=0
+    )
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
     if category == "MODEL":
@@ -427,11 +460,12 @@ def persist_context(
 
 # ---------------- Entry ----------------
 
+
 def main() -> int:
     if len(sys.argv) != 2:
-        print("usage: ./run <URL_FILE>", file=sys.stderr)
-        return 1
-
+        sys.exit(1)
+    
+    _require_valid_github_token()
     url_file = sys.argv[1]
     urls = read_urls(url_file)
 
@@ -441,35 +475,47 @@ def main() -> int:
     logger.info("run start: urls=%d db=%s", len(urls), str(db_path))
     logger.debug("urls=%s", urls)
 
-    total = succeeded = 0
+    total = 0
+    succeeded = 0
     for url in urls:
         total += 1
         try:
             t0 = time.perf_counter_ns()
             category, ctx = _build_context_for_url(url)
             ms = (time.perf_counter_ns() - t0) / 1e6
-            logger.info("context: built category=%s url=%s (%.1f ms)",
-                        category, url, ms)
-            logger.debug("context summary: %s", _ctx_summary(ctx))
+            logger.info(
+                "context: built category=%s url=%s (%.1f ms)",
+                category,
+                url,
+                ms,
+            )
+            logger.info("context summary: %s", _ctx_summary(ctx))
 
             rid = persist_context(db_path, ctx, category)
-            print(f"[OK] {category:<7} saved id={rid} url={url}")
-            logger.info("persist ok: id=%s category=%s url=%s",
-                        rid, category, url)
+            # print(f"[OK] {category:<7} saved id={rid} url={url}")
+            logger.info(
+                "persist ok: id=%s category=%s url=%s", rid, category, url
+            )
             succeeded += 1
 
             if category == "MODEL":
                 _evaluate_and_persist(db_path, rid, category, ctx)
 
         except Exception as e:
-            print(f"[ERR] url={url} error={e}", file=sys.stderr)
-            logger.error("pipeline error: url=%s err=%s",
-                         url, e, exc_info=True)
+            # print(f"[ERR] url={url} error={e}", file=sys.stderr)
+            logger.error(
+                "pipeline error: url=%s err=%s", url, e, exc_info=True
+            )
 
-    logger.info("run end: %d/%d %s",
-                succeeded, total,
-                "OK" if succeeded == total else "PARTIAL")
-    return 0 if succeeded == total else 1
+    failures = total - succeeded
+    logger.info(
+        "run end: %d/%d %s",
+        succeeded,
+        total,
+        "OK" if failures == 0 else "PARTIAL",
+    )
+    # print(0 if failures == 0 else 1)
+    return 0 if failures == 0 else 1
 
 
 if __name__ == "__main__":

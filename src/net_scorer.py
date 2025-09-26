@@ -194,4 +194,4 @@ def _emit_ndjson(
     logger.debug("NDJSON payload=%s", nd)
 
     # ---- Emission (stdout) ----
-    # print(json.dumps(nd, separators=(",", ":")))
+    print(json.dumps(nd, separators=(",", ":")))
