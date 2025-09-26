@@ -260,14 +260,10 @@ def _evaluate_and_persist(
     finally:
         conn.close()
 
-    _emit_ndjson(
-        ctx=ctx,
-        category=category,
-        per_metric=per_metric_scores,
-        net=net,
-        per_metric_lat_ms={name: 0 for name in per_metric_scores},  # ok to start at 0
-        net_latency_ms=0
-    )
+    _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
+    # print(f"[EVAL] {category:<7} id={rid} net={net:.3f} url={url_disp}")
+    logger.info("eval done: id=%s metrics=%d", rid, len(scores))
+
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
     if category == "MODEL":
