@@ -46,7 +46,7 @@ def setup_logging() -> None:
         # Check writability explicitly
         with open(p, "a", encoding="utf-8"):
             pass
-    except Exception as e:
+    except Exception:
         # print(f"ERROR: cannot open LOG_FILE '{log_file}': {e}", file=sys.stderr)
         sys.exit(1)
 
