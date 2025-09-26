@@ -17,7 +17,7 @@ from handlers import (
     build_model_context,
 )
 from metric_eval import MetricEval, init_metrics, init_weights
-from net_scorer import NetScorer
+from net_scorer import _emit_ndjson
 from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 
@@ -263,14 +263,21 @@ def _evaluate_and_persist(
         conn.close()
 
     # NDJSON/summary via NetScorer (tests patch this)
-    ns = NetScorer(
-        scores=per_metric_scores,
-        weights=weights,
-        url=(ctx.hf_id or ctx.gh_url or ctx.url or ""),
-        latencies={"NetScore": 0, **zero_latencies},
-    )
+    # ns = NetScorer(
+    #     scores=per_metric_scores,
+    #     weights=weights,
+    #     url=(ctx.hf_id or ctx.gh_url or ctx.url or ""),
+    #     latencies={"NetScore": 0, **zero_latencies},
+    # )
     
-    print(ns.to_ndjson_string())
+    _emit_ndjson(
+        ctx=ctx,
+        category=category,
+        per_metric=per_metric_scores,
+        net=net,
+        per_metric_lat_ms={name: 0 for name in per_metric_scores},  # ok to start at 0
+        net_latency_ms=0
+    )
 
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
@@ -498,8 +505,8 @@ def persist_context(
 
 def main() -> int:
     if len(sys.argv) != 2:
-        # print("usage: ./run <URL_FILE>", file=sys.stderr)
-        return 1
+        sys.exit(1)
+    
     _require_valid_github_token()
     url_file = sys.argv[1]
     urls = read_urls(url_file)
