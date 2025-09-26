@@ -17,7 +17,7 @@ from handlers import (
     build_model_context,
 )
 from metric_eval import MetricEval, init_metrics, init_weights
-from net_scorer import _emit_ndjson, NetScorer
+from net_scorer import _emit_ndjson
 from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 
@@ -26,7 +26,6 @@ logger = logging.getLogger("acme-cli")
 
 
 # ---------------- Logging ----------------
-
 
 def setup_logging() -> None:
     """
@@ -60,13 +59,11 @@ def setup_logging() -> None:
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    logger.info(
-        "logging: file=%s level=%s", log_file, logging.getLevelName(level)
-    )
+    logger.info("logging: file=%s level=%s", log_file,
+                logging.getLevelName(level))
 
 
 # ---------------- CLI + Paths ----------------
-
 
 def read_urls(arg: str) -> list[str]:
     """Read newline- or comma-separated URLs; drop blanks."""
@@ -86,32 +83,25 @@ def read_urls(arg: str) -> list[str]:
 
 
 def _find_project_root(start: Path) -> Path | None:
-    cur = start.absolute()
-    while True:
+    cur = start.resolve()
+    for _ in range(10):
         if (cur / ".git").exists():
             return cur
-        parent = cur.parent
-        if parent == cur:
-            return None
-        cur = parent
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return None
 
 
 def _user_cache_base() -> Path:
-    env = os.environ.get("ACME_CACHE_DIR")
-    if env:
-        return Path(env)
-
     sysname = platform.system()
     home = Path.home()
     if sysname == "Darwin":
         return home / "Library" / "Application Support" / "acme-cli"
     if sysname == "Windows":
         base = os.environ.get("APPDATA")
-        return (
-            Path(base) / "acme-cli"
-            if base
-            else home / "AppData" / "Roaming" / "acme-cli"
-        )
+        return Path(base) / "acme-cli" if base else \
+            home / "AppData" / "Roaming" / "acme-cli"
     xdg = os.environ.get("XDG_CACHE_HOME")
     return Path(xdg) / "acme-cli" if xdg else home / ".cache" / "acme-cli"
 
@@ -121,11 +111,8 @@ def _resolve_db_path() -> Path:
     if env_db:
         return Path(env_db)
     proj = _find_project_root(Path.cwd())
-    return (
-        proj / ".acme" / "state.sqlite"
-        if proj
-        else _user_cache_base() / "state.sqlite"
-    )
+    return proj / ".acme" / "state.sqlite" if proj else \
+        _user_cache_base() / "state.sqlite"
 
 
 def _ensure_path_secure(p: Path) -> None:
@@ -139,7 +126,6 @@ def _ensure_path_secure(p: Path) -> None:
 
 
 # ---------------- Pipeline ----------------
-
 
 def _ctx_summary(ctx: RepoContext) -> dict:
     return {
@@ -169,24 +155,40 @@ def _build_context_for_url(url: str) -> tuple[Category, RepoContext]:
 def _evaluate_and_persist(
     db_path: Path, rid: int, category: Category, ctx: RepoContext
 ) -> None:
-    # if category != "MODEL":
-    #     return
+    if category != "MODEL":
+        return
 
     url_disp = ctx.hf_id or ctx.gh_url or ctx.url or ""
     logger.info("eval: id=%s category=%s url=%s", rid, category, url_disp)
 
     weights = init_weights()
     metrics = init_metrics()
-    evaluator = MetricEval(metrics, weights)
+    logger.debug("metrics=%s", [m.name for m in metrics])
 
+    evaluator = MetricEval(metrics, weights)
     repo_ctx = {**ctx.__dict__, "_ctx_obj": ctx, "category": category}
 
-    # ---- one-shot evaluation (what the tests expect) ----
-    per_metric_scores: Dict[str, float] = evaluator.evaluateAll(repo_ctx)  # <—
-    net = evaluator.aggregateScores(per_metric_scores)
+    scores: Dict[str, float] = {}
+    lats_ms: Dict[str, int] = {}
+    for m in metrics:
+        t0 = time.perf_counter_ns()
+        try:
+            val = float(m.evaluate(repo_ctx))
+        except Exception as e:
+            val = 0.0
+            repo_ctx.setdefault("_metric_errors", {})[m.name] = str(e)
+            logger.exception("metric: %s failed: %s", m.name, e)
+        lats_ms[m.name] = int((time.perf_counter_ns() - t0) / 1e6)
+        scores[m.name] = val
+        logger.info("[METRIC] id=%s %s=%.3f (%d ms)",
+                    rid, m.name, val, lats_ms[m.name])
 
-    # Persist (latencies are not returned by evaluateAll; use zeros)
-    zero_latencies = {name: 0 for name in per_metric_scores.keys()}
+    t0 = time.perf_counter_ns()
+    net = evaluator.aggregateScores(scores)
+    net_lat = int((time.perf_counter_ns() - t0) / 1e6)
+    logger.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
+                rid, category, net, net_lat)
+
     conn = db.open_db(db_path)
     try:
         ver = "v1"
@@ -194,28 +196,22 @@ def _evaluate_and_persist(
 
         for m in metrics:
             aux = {}
-            if (
-                m.name == "CodeQuality"
-                and "_code_quality_llm_parts" in repo_ctx
-            ):
+            if (m.name == "CodeQuality"
+                    and "_code_quality_llm_parts" in repo_ctx):
                 aux["llm_parts"] = repo_ctx["_code_quality_llm_parts"]
-            if (
-                m.name == "DatasetQuality"
-                and "_dataset_quality_llm_parts" in repo_ctx
-            ):
+            if (m.name == "DatasetQuality"
+                    and "_dataset_quality_llm_parts" in repo_ctx):
                 aux["llm_parts"] = repo_ctx["_dataset_quality_llm_parts"]
-            if (
-                "_metric_errors" in repo_ctx
-                and m.name in repo_ctx["_metric_errors"]
-            ):
+            if "_metric_errors" in repo_ctx and m.name in repo_ctx[
+                    "_metric_errors"]:
                 aux["error"] = repo_ctx["_metric_errors"][m.name]
 
             db.upsert_metric(
                 conn,
                 resource_id=rid,
                 metric_name=m.name,
-                value=float(per_metric_scores.get(m.name, -1.0)),
-                latency_ms=zero_latencies[m.name],
+                value=float(scores.get(m.name, -1.0)),
+                latency_ms=int(lats_ms.get(m.name, 0)),
                 aux=aux,
                 metric_version=ver,
                 input_fingerprint_parts=fp,
@@ -225,8 +221,8 @@ def _evaluate_and_persist(
             conn,
             resource_id=rid,
             metric_name="NetScore",
-            value=float(net),
-            latency_ms=0,
+            value=net,
+            latency_ms=net_lat,
             aux={},
             metric_version=ver,
             input_fingerprint_parts=fp,
@@ -235,15 +231,9 @@ def _evaluate_and_persist(
     finally:
         conn.close()
 
-    # NDJSON/summary via NetScorer (tests patch this)
-    ns = NetScorer(
-        scores=per_metric_scores,
-        weights=weights,
-        url=(ctx.hf_id or ctx.gh_url or ctx.url or ""),
-        latencies={"NetScore": 0, **zero_latencies},
-    )
-    print(ns.to_ndjson_string())
-    print(str(ns))
+    _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
+    print(f"[EVAL] {category:<7} id={rid} net={net:.3f} url={url_disp}")
+    logger.info("eval done: id=%s metrics=%d", rid, len(scores))
 
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
@@ -261,12 +251,8 @@ def persist_context(
     if not canon:
         raise ValueError("Cannot derive canonical key")
 
-    logger.info(
-        "persist: category=%s key=%s url=%s",
-        category,
-        canon,
-        (ctx.hf_id or ctx.gh_url or ctx.url or ""),
-    )
+    logger.info("persist: category=%s key=%s url=%s", category, canon,
+                (ctx.hf_id or ctx.gh_url or ctx.url or ""))
 
     base = {
         "url": ctx.url,
@@ -293,30 +279,20 @@ def persist_context(
         "api_errors": ctx.api_errors,
     }
 
-    files = [
-        {
-            "path": str(fi.path),
-            "ext": fi.ext,
-            "size_bytes": int(fi.size_bytes or 0),
-        }
-        for fi in ctx.files
-    ]
+    files = [{
+        "path": str(fi.path),
+        "ext": fi.ext,
+        "size_bytes": int(fi.size_bytes or 0),
+    } for fi in ctx.files]
 
     conn = db.open_db(db_path)
     try:
         rid = db.upsert_resource(
-            conn,
-            category=category,
-            canonical_key=canon,
-            base=base,
+            conn, category=category, canonical_key=canon, base=base,
             files=files,
         )
-        logger.info(
-            "persisted: id=%s category=%s files=%d",
-            rid,
-            category,
-            len(ctx.files or []),
-        )
+        logger.info("persisted: id=%s category=%s files=%d",
+                    rid, category, len(ctx.files or []))
 
         if category == "MODEL":
             # datasets
@@ -328,10 +304,8 @@ def persist_context(
                     conn, category="DATASET", canonical_key=ds_key
                 )
                 if ds_id is None:
-                    ds_url = (
-                        getattr(ds, "url", None)
-                        or f"https://huggingface.co/datasets/{ds_key}"
-                    )
+                    ds_url = getattr(ds, "url", None) or \
+                        f"https://huggingface.co/datasets/{ds_key}"
                     try:
                         ds_ctx = build_dataset_context(ds_url)
                         ds_base = {
@@ -341,8 +315,7 @@ def persist_context(
                             "host": ds_ctx.host,
                             "repo_path": (
                                 str(ds_ctx.repo_path)
-                                if ds_ctx.repo_path
-                                else None
+                                if ds_ctx.repo_path else None
                             ),
                             "readme_text": ds_ctx.readme_text,
                             "card_data": ds_ctx.card_data,
@@ -362,22 +335,16 @@ def persist_context(
                             "cache_hits": ds_ctx.cache_hits,
                             "api_errors": ds_ctx.api_errors,
                         }
-                        ds_files = [
-                            {
-                                "path": str(fi.path),
-                                "ext": fi.ext,
-                                "size_bytes": int(fi.size_bytes or 0),
-                            }
-                            for fi in ds_ctx.files
-                        ]
+                        ds_files = [{
+                            "path": str(fi.path),
+                            "ext": fi.ext,
+                            "size_bytes": int(fi.size_bytes or 0),
+                        } for fi in ds_ctx.files]
                         ds_id = db.upsert_resource(
-                            conn,
-                            category="DATASET",
+                            conn, category="DATASET",
                             canonical_key=RepoContext._canon_dataset_key(
-                                ds_ctx
-                            ),
-                            base=ds_base,
-                            files=ds_files,
+                                ds_ctx),
+                            base=ds_base, files=ds_files,
                         )
                     except Exception as e:
                         ctx.fetch_logs.append(
@@ -397,9 +364,8 @@ def persist_context(
                     conn, category="CODE", canonical_key=code_key
                 )
                 if code_id is None:
-                    code_url = getattr(code, "gh_url", None) or getattr(
-                        code, "url", None
-                    )
+                    code_url = getattr(code, "gh_url", None) or \
+                        getattr(code, "url", None)
                     if code_url:
                         try:
                             code_ctx = build_code_context(code_url)
@@ -410,8 +376,7 @@ def persist_context(
                                 "host": code_ctx.host,
                                 "repo_path": (
                                     str(code_ctx.repo_path)
-                                    if code_ctx.repo_path
-                                    else None
+                                    if code_ctx.repo_path else None
                                 ),
                                 "readme_text": code_ctx.readme_text,
                                 "card_data": code_ctx.card_data,
@@ -419,7 +384,8 @@ def persist_context(
                                 "model_index": code_ctx.model_index,
                                 "tags": code_ctx.tags,
                                 "downloads_30d": code_ctx.downloads_30d,
-                                "downloads_all_time": code_ctx.downloads_all_time,
+                                "downloads_all_time":
+                                    code_ctx.downloads_all_time,
                                 "likes": code_ctx.likes,
                                 "created_at": code_ctx.created_at,
                                 "last_modified": code_ctx.last_modified,
@@ -431,22 +397,16 @@ def persist_context(
                                 "cache_hits": code_ctx.cache_hits,
                                 "api_errors": code_ctx.api_errors,
                             }
-                            code_files = [
-                                {
-                                    "path": str(fi.path),
-                                    "ext": fi.ext,
-                                    "size_bytes": int(fi.size_bytes or 0),
-                                }
-                                for fi in code_ctx.files
-                            ]
+                            code_files = [{
+                                "path": str(fi.path),
+                                "ext": fi.ext,
+                                "size_bytes": int(fi.size_bytes or 0),
+                            } for fi in code_ctx.files]
                             code_id = db.upsert_resource(
-                                conn,
-                                category="CODE",
+                                conn, category="CODE",
                                 canonical_key=RepoContext._canon_code_key(
-                                    code_ctx
-                                ),
-                                base=code_base,
-                                files=code_files,
+                                    code_ctx),
+                                base=code_base, files=code_files,
                             )
                         except Exception as e:
                             ctx.fetch_logs.append(
@@ -458,16 +418,14 @@ def persist_context(
                     db.link_resources(conn, rid, code_id, "MODEL_TO_CODE")
 
         conn.commit()
-        logger.info(
-            "persist done: id=%s category=%s key=%s", rid, category, canon
-        )
+        logger.info("persist done: id=%s category=%s key=%s",
+                    rid, category, canon)
         return rid
     finally:
         conn.close()
 
 
 # ---------------- Entry ----------------
-
 
 def main() -> int:
     if len(sys.argv) != 2:
@@ -483,27 +441,21 @@ def main() -> int:
     logger.info("run start: urls=%d db=%s", len(urls), str(db_path))
     logger.debug("urls=%s", urls)
 
-    total = 0
-    succeeded = 0
+    total = succeeded = 0
     for url in urls:
         total += 1
         try:
             t0 = time.perf_counter_ns()
             category, ctx = _build_context_for_url(url)
             ms = (time.perf_counter_ns() - t0) / 1e6
-            logger.info(
-                "context: built category=%s url=%s (%.1f ms)",
-                category,
-                url,
-                ms,
-            )
-            logger.info("context summary: %s", _ctx_summary(ctx))
+            logger.info("context: built category=%s url=%s (%.1f ms)",
+                        category, url, ms)
+            logger.debug("context summary: %s", _ctx_summary(ctx))
 
             rid = persist_context(db_path, ctx, category)
             print(f"[OK] {category:<7} saved id={rid} url={url}")
-            logger.info(
-                "persist ok: id=%s category=%s url=%s", rid, category, url
-            )
+            logger.info("persist ok: id=%s category=%s url=%s",
+                        rid, category, url)
             succeeded += 1
 
             if category == "MODEL":
@@ -511,19 +463,13 @@ def main() -> int:
 
         except Exception as e:
             print(f"[ERR] url={url} error={e}", file=sys.stderr)
-            logger.error(
-                "pipeline error: url=%s err=%s", url, e, exc_info=True
-            )
+            logger.error("pipeline error: url=%s err=%s",
+                         url, e, exc_info=True)
 
-    failures = total - succeeded
-    logger.info(
-        "run end: %d/%d %s",
-        succeeded,
-        total,
-        "OK" if failures == 0 else "PARTIAL",
-    )
-    print(0 if failures == 0 else 1)
-    return 0 if failures == 0 else 1
+    logger.info("run end: %d/%d %s",
+                succeeded, total,
+                "OK" if succeeded == total else "PARTIAL")
+    return 0 if succeeded == total else 1
 
 
 if __name__ == "__main__":

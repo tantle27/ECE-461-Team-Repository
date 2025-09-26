@@ -2,14 +2,21 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from collections.abc import Mapping
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from huggingface_hub import HfApi
 
+try:
+    # Optional: available in many environments, but not required
+    from huggingface_hub import HfApi  # type: ignore
+except Exception:  # pragma: no cover
+    HfApi = None  # type: ignore
+
+
+# ---------------- HTTP plumbing ----------------
 
 class _TimeoutHTTPAdapter(HTTPAdapter):
     def __init__(self, *args, timeout: int = 30, **kwargs):
@@ -54,8 +61,25 @@ def _retry(fn, attempts: int = 4):
             time.sleep(0.4 * (2**i))
 
 
-# ---------------- Data models ----------------
+def _json_get(session: requests.Session, url: str) -> Optional[Dict[str, Any]]:
+    r = _retry(lambda: session.get(url))
+    if r.status_code == 404 or r.status_code == 401:
+        return None
+    r.raise_for_status()
+    try:
+        return r.json()
+    except Exception:
+        return None
 
+
+def _text_get(session: requests.Session, url: str) -> Optional[str]:
+    r = _retry(lambda: session.get(url))
+    if r.status_code != 200:
+        return None
+    return r.text or None
+
+
+# ---------------- Data models ----------------
 
 @dataclass
 class HFModelInfo:
@@ -79,15 +103,14 @@ class HFFileInfo:
 
 # ---------------- Helpers ----------------
 
-
 def _normalize_card_data(x: Any) -> Dict[str, Any]:
     if x is None:
         return {}
     try:
-        if hasattr(x, "to_dict") and callable(x.to_dict):  # type: ignore
-            return dict(x.to_dict())  # type: ignore[attr-defined]
-        if hasattr(x, "data") and isinstance(x.data, Mapping):  # type: ignore
-            return dict(x.data)  # type: ignore[attr-defined]
+        if hasattr(x, "to_dict") and callable(x.to_dict):  # type: ignore[attr-defined]
+            return dict(x.to_dict())
+        if hasattr(x, "data") and isinstance(x.data, Mapping):  # type: ignore[attr-defined]
+            return dict(x.data)
         if isinstance(x, Mapping):
             return dict(x)
         for m in ("model_dump", "dict", "json"):
@@ -99,8 +122,14 @@ def _normalize_card_data(x: Any) -> Dict[str, Any]:
     return {}
 
 
-# ---------------- GitHub URL extraction ----------------
+def _safe_int(x: Any) -> Optional[int]:
+    try:
+        return int(x)
+    except Exception:
+        return None
 
+
+# ---------------- GitHub URL extraction ----------------
 
 class GitHubMatcher:
     GITHUB = re.compile(r"https?://github\.com/[^\s)\"'<>]+", re.I)
@@ -125,32 +154,19 @@ class GitHubMatcher:
         s = (s or "").lower()
         for pre in ("hf-", "huggingface-", "the-"):
             if s.startswith(pre):
-                s = s[len(pre) :]
-        for suf in (
-            "-dev",
-            "-devkit",
-            "-main",
-            "-release",
-            "-project",
-            "-repo",
-            "-code",
-        ):
+                s = s[len(pre):]
+        for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo", "-code"):
             if s.endswith(suf):
                 s = s[: -len(suf)]
         return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
 
-    # These two aliases satisfy tests that call _normalize/_tokenize
     @staticmethod
     def _normalize(s: str) -> str:
         return GitHubMatcher._norm(s)
 
     @staticmethod
     def _tokens(s: str) -> Set[str]:
-        return {
-            t
-            for t in re.split(r"[^a-z0-9]+", GitHubMatcher._norm(s))
-            if len(t) >= 3
-        }
+        return {t for t in re.split(r"[^a-z0-9]+", GitHubMatcher._norm(s)) if len(t) >= 3}
 
     @staticmethod
     def _tokenize(s: str) -> Set[str]:
@@ -165,34 +181,20 @@ class GitHubMatcher:
 
     @staticmethod
     def _ver_bonus(hf_id: str, repo: str) -> float:
-        hv = [
-            tuple(map(int, m.group(1).split(".")))
-            for m in GitHubMatcher.VER.finditer(hf_id or "")
-        ]
-        rv = [
-            tuple(map(int, m.group(1).split(".")))
-            for m in GitHubMatcher.VER.finditer(repo or "")
-        ]
+        hv = [tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(hf_id or "")]
+        rv = [tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(repo or "")]
         if not hv or not rv:
             return 0.0
         return max(1.0 if x == y else 0.9 for x in hv for y in rv)
 
     @classmethod
-    def extract_urls(
-        cls, hf_id: str, readme: str, card: Dict | None = None
-    ) -> List[str]:
+    def extract_urls(cls, hf_id: str, readme: str, card: Dict | None = None) -> List[str]:
         if not readme:
             return []
         aliases = {cls._normalize(hf_id)} | (
-            {cls._normalize(card.get("name"))}
-            if card and isinstance(card.get("name"), str)
-            else set()
+            {cls._normalize(card.get("name"))} if card and isinstance(card.get("name"), str) else set()
         )
-        hf_org = (
-            hf_id.replace("datasets/", "").split("/", 1)[0].lower()
-            if "/" in hf_id
-            else ""
-        )
+        hf_org = hf_id.replace("datasets/", "").split("/", 1)[0].lower() if "/" in hf_id else ""
         cands: List[tuple[float, str, str]] = []
         seen: set[str] = set()
 
@@ -208,9 +210,7 @@ class GitHubMatcher:
             if repo.lower() in cls.GENERIC:
                 continue
             toks = cls._tokens(repo)
-            sim = max(
-                (cls._jac(cls._tokens(a), toks) for a in aliases), default=0.0
-            )
+            sim = max((cls._jac(cls._tokens(a), toks) for a in aliases), default=0.0)
             sim += cls._ver_bonus(hf_id, repo)
             if hf_org and (hf_org in owner.lower() or owner.lower() in hf_org):
                 sim += 0.05
@@ -226,82 +226,54 @@ class GitHubMatcher:
         return [cands[0][1]] if cands else []
 
 
-# ---------------- HF client (public endpoints; no tokens) ----------------
-
+# ---------------- HF client (public endpoints first) ----------------
 
 class HFClient:
     """
-    Hugging Face client using only public endpoints (no auth/token).
-    - Uses HfApi for convenient listing when available (tests patch it).
-    - Uses raw GETs for README/model_index.
+    Hugging Face client that uses public endpoints (no auth) for correctness,
+    with optional HfApi fallback when available.
     """
 
     def __init__(self) -> None:
-        self.api = HfApi()  # available for tests to patch
-        self._session = _create_session()  # public session, no token
+        self.api = HfApi() if HfApi else None  # optional
+        self._session = _create_session()
 
-    # ---- Low-level helpers ----
+    # ---- Public API helpers ----
 
-    def _api_json(self, path: str) -> Dict[str, Any] | None:
-        url = f"https://huggingface.co{path}"
+    def _api_model_json(self, hf_id: str) -> Optional[Dict[str, Any]]:
+        # includes metadata; may include 'siblings' (files)
+        return _json_get(self._session, f"https://huggingface.co/api/models/{hf_id}")
+
+    def _api_dataset_json(self, hf_id: str) -> Optional[Dict[str, Any]]:
+        return _json_get(self._session, f"https://huggingface.co/api/datasets/{hf_id}")
+
+    def _api_tree_json(self, base: str, revision: str = "main") -> Optional[List[Dict[str, Any]]]:
+        # Try 'tree' endpoint: /api/<kind>/<id>/tree/<rev>?recursive=1
+        # Works for many repos; if not present, returns None.
+        url = f"https://huggingface.co/api/{base}/tree/{revision}?recursive=1"
         r = _retry(lambda: self._session.get(url))
-        if r.status_code in (401, 404):
+        if r.status_code != 200:
             return None
-        r.raise_for_status()
         try:
-            return r.json()
+            data = r.json()
+            return data if isinstance(data, list) else None
         except Exception:
             return None
 
-    def _get_text(self, url: str) -> Optional[str]:
-        r = _retry(lambda: self._session.get(url))
-        if r.status_code == 200 and r.text:
-            return r.text
-        return None
+    # ---- File listing (robust) ----
 
-    # ---- Info via HfApi objects (tests patch these) ----
-
-    def _to_info_from_hub(self, hf_id: str, hub_obj: Any) -> HFModelInfo:
-        # normalize diverse attribute shapes
-        card = _normalize_card_data(getattr(hub_obj, "cardData", None))
-        tags = [str(t) for t in (getattr(hub_obj, "tags", None) or [])]
-        likes = getattr(hub_obj, "likes", None)
-        d30 = getattr(hub_obj, "downloads", None)
-        dall = getattr(hub_obj, "downloadsAllTime", None)
-        created = getattr(hub_obj, "createdAt", None)
-        modified = getattr(hub_obj, "lastModified", None)
-        gated = getattr(hub_obj, "gated", None)
-        private = getattr(hub_obj, "private", None)
-        # some objects may call modelId/datasetId
-        if not hf_id:
-            hf_id = (
-                getattr(hub_obj, "modelId", None)
-                or getattr(hub_obj, "datasetId", None)
-                or ""
-            )
-        return HFModelInfo(
-            hf_id=hf_id,
-            card_data=card,
-            tags=tags,
-            likes=likes if isinstance(likes, int) else None,
-            downloads_30d=d30 if isinstance(d30, int) else None,
-            downloads_all_time=dall if isinstance(dall, int) else None,
-            created_at=str(created) if created is not None else None,
-            last_modified=str(modified) if modified is not None else None,
-            gated=bool(gated) if gated is not None else None,
-            private=bool(private) if private is not None else None,
-        )
-
-    def get_model_info(self, hf_id: str) -> HFModelInfo:
-        info = self.api.model_info(hf_id)  # tests patch this
-        return self._to_info_from_hub(hf_id, info)
-
-    def get_dataset_info(self, hf_id: str) -> HFModelInfo:
-        info = self.api.dataset_info(hf_id)  # tests patch this
-        return self._to_info_from_hub(hf_id, info)
-
-    # ---- Files (prefer HfApi for tests; fallback sizes unknown) ----
-
+    def _extract_files_from_api_obj(self, obj: Dict[str, Any]) -> List[HFFileInfo]:
+        """
+        Extract file list from the API object that often contains 'siblings' with rfilename/size.
+        """
+        out: List[HFFileInfo] = []
+        sibs = obj.get("siblings")
+        if isinstance(sibs, list):
+            for s in sibs:
+                p = s.get("rfilename") if isinstance(s, dict) else None
+                if isinstance(p, str) and p:
+                    out.append(HFFileInfo(path=p, size=_safe_int(s.get("size"))))
+        return out
     def list_files(
         self, hf_id: str, *, repo_type: str = "model"
     ) -> List[HFFileInfo]:
@@ -330,12 +302,86 @@ class HFClient:
             for f in files:
                 out.append(HFFileInfo(path=f, size=sizes.get(f)))
         return out
+    def _parse_tree_html(self, base_path: str, revision: str = "main") -> List[HFFileInfo]:
+        """
+        Fallback: parse HTML from /<base>/tree/<revision> to list files (sizes unknown).
+        """
+        url = f"https://huggingface.co/{base_path}/tree/{revision}"
+        html = _text_get(self._session, url)
+        if not html:
+            return []
+        # Look for "/<base>/blob/<revision>/<path>"
+        base_quoted = re.escape(base_path)
+        rev_quoted = re.escape(revision)
+        pat = re.compile(rf"/{base_quoted}/blob/{rev_quoted}/([^\"'#?]+)")
+        files = {m.group(1) for m in pat.finditer(html)}
+        return [HFFileInfo(path=f, size=None) for f in sorted(files)]
 
-    def list_dataset_files(self, hf_id: str) -> List[HFFileInfo]:
-        return self.list_files(hf_id, repo_type="dataset")
+    def list_model_files(self, hf_id: str, *, revision: str = "main") -> List[HFFileInfo]:
+        # 1) Try API model JSON 'siblings'
+        obj = self._api_model_json(hf_id)
+        files = self._extract_files_from_api_obj(obj or {})
+        if files:
+            return files
+        # 2) Try tree API (models/<id>)
+        tree = self._api_tree_json(f"models/{hf_id}", revision=revision)
+        if tree:
+            out: List[HFFileInfo] = []
+            for node in tree:
+                if node.get("type") == "file" and isinstance(node.get("path"), str):
+                    out.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
+            if out:
+                return out
+        # 3) Optional HfApi fallback
+        if self.api:
+            try:
+                names = self.api.list_repo_files(hf_id, repo_type="model")
+                sizes: Dict[str, int | None] = {}
+                try:
+                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type="model")  # type: ignore[attr-defined]
+                    for info in infos or []:
+                        p = getattr(info, "path", None)
+                        sz = getattr(info, "size", None)
+                        if isinstance(p, str):
+                            sizes[p] = sz if isinstance(sz, int) else None
+                except Exception:
+                    sizes = {}
+                return [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+            except Exception:
+                pass
+        # 4) HTML fallback
+        return self._parse_tree_html(hf_id, revision=revision)
 
-    def list_model_files(self, hf_id: str) -> List[HFFileInfo]:
-        return self.list_files(hf_id, repo_type="model")
+    def list_dataset_files(self, hf_id: str, *, revision: str = "main") -> List[HFFileInfo]:
+        obj = self._api_dataset_json(hf_id)
+        files = self._extract_files_from_api_obj(obj or {})
+        if files:
+            return files
+        tree = self._api_tree_json(f"datasets/{hf_id}", revision=revision)
+        if tree:
+            out: List[HFFileInfo] = []
+            for node in tree:
+                if node.get("type") == "file" and isinstance(node.get("path"), str):
+                    out.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
+            if out:
+                return out
+        if self.api:
+            try:
+                names = self.api.list_repo_files(hf_id, repo_type="dataset")
+                sizes: Dict[str, int | None] = {}
+                try:
+                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type="dataset")  # type: ignore[attr-defined]
+                    for info in infos or []:
+                        p = getattr(info, "path", None)
+                        sz = getattr(info, "size", None)
+                        if isinstance(p, str):
+                            sizes[p] = sz if isinstance(sz, int) else None
+                except Exception:
+                    sizes = {}
+                return [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+            except Exception:
+                pass
+        return self._parse_tree_html(f"datasets/{hf_id}", revision=revision)
 
     # ---- README (raw) ----
 
@@ -346,53 +392,147 @@ class HFClient:
         revision: str = "main",
         repo_type: Optional[str] = None,
     ) -> Optional[str]:
+        """
+        Try both model and dataset paths, preferring repo_type if given.
+        """
         plain = hf_id.removeprefix("datasets/")
         ds_id = f"datasets/{plain}"
         order = (
-            [plain, ds_id]
-            if repo_type == "model"
-            else [ds_id, plain] if repo_type == "dataset" else [plain, ds_id]
+            [plain, ds_id] if repo_type == "model"
+            else [ds_id, plain] if repo_type == "dataset"
+            else [plain, ds_id]
         )
         for base in order:
             for fn in ("README.md", "README.MD", "readme.md"):
                 url = f"https://huggingface.co/{base}/raw/{revision}/{fn}"
-                txt = self._get_text(url)
+                txt = _text_get(self._session, url)
                 if txt:
                     return txt
         return None
 
-    def get_dataset_readme(
-        self, hf_id: str, *, revision: str = "main"
-    ) -> Optional[str]:
+    def get_dataset_readme(self, hf_id: str, *, revision: str = "main") -> Optional[str]:
         return self.get_readme(hf_id, revision=revision, repo_type="dataset")
 
-    def get_model_readme(
-        self, hf_id: str, *, revision: str = "main"
-    ) -> Optional[str]:
+    def get_model_readme(self, hf_id: str, *, revision: str = "main") -> Optional[str]:
         return self.get_readme(hf_id, revision=revision, repo_type="model")
 
     # ---- model_index.json (raw) ----
 
-    def get_model_index_json(
-        self, hf_id: str, *, revision: str = "main"
-    ) -> Optional[Dict]:
+    def get_model_index_json(self, hf_id: str, *, revision: str = "main") -> Optional[Dict[str, Any]]:
         plain = hf_id.removeprefix("datasets/")
         urls = [
-            (
-                f"https://huggingface.co/{plain}/raw/{revision}/model_index.json"
-            ),
-            (
-                f"https://huggingface.co/datasets/{plain}/raw/{revision}/model_index.json"
-            ),
+            f"https://huggingface.co/{plain}/raw/{revision}/model_index.json",
+            f"https://huggingface.co/datasets/{plain}/raw/{revision}/model_index.json",
         ]
         for url in urls:
-            r = _retry(lambda: self._session.get(url))
-            if r.status_code == 200:
-                try:
-                    return r.json()
-                except Exception:
-                    return None
+            obj = _json_get(self._session, url)
+            if obj:
+                return obj
         return None
+
+    # ---- Card/info (public API first) ----
+
+    def _to_info_from_api_obj(self, hf_id: str, obj: Dict[str, Any]) -> HFModelInfo:
+        # keys observed on the public API; tolerate missing/variant shapes
+        card = _normalize_card_data(obj.get("cardData"))
+        tags_raw = obj.get("tags") or []
+        tags = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else []
+        likes = _safe_int(obj.get("likes"))
+        d30 = _safe_int(obj.get("downloads"))
+        dall = _safe_int(obj.get("downloadsAllTime"))
+        created = obj.get("createdAt")
+        modified = obj.get("lastModified")
+        gated = bool(obj.get("gated")) if obj.get("gated") is not None else None
+        private = bool(obj.get("private")) if obj.get("private") is not None else None
+        rid = obj.get("modelId") or obj.get("datasetId") or hf_id
+        return HFModelInfo(
+            hf_id=str(rid),
+            card_data=card,
+            tags=tags,
+            likes=likes,
+            downloads_30d=d30,
+            downloads_all_time=dall,
+            created_at=str(created) if created is not None else None,
+            last_modified=str(modified) if modified is not None else None,
+            gated=gated,
+            private=private,
+        )
+
+    def get_model_info(self, hf_id: str) -> HFModelInfo:
+        obj = self._api_model_json(hf_id)
+        if obj:
+            return self._to_info_from_api_obj(hf_id, obj)
+        # Optional HfApi fallback
+        if self.api:
+            try:
+                hub_obj = self.api.model_info(hf_id)  # type: ignore[attr-defined]
+                return self._to_info_from_api_obj(
+                    hf_id,
+                    {
+                        "cardData": getattr(hub_obj, "cardData", None),
+                        "tags": getattr(hub_obj, "tags", None),
+                        "likes": getattr(hub_obj, "likes", None),
+                        "downloads": getattr(hub_obj, "downloads", None),
+                        "downloadsAllTime": getattr(hub_obj, "downloadsAllTime", None),
+                        "createdAt": getattr(hub_obj, "createdAt", None),
+                        "lastModified": getattr(hub_obj, "lastModified", None),
+                        "gated": getattr(hub_obj, "gated", None),
+                        "private": getattr(hub_obj, "private", None),
+                        "modelId": getattr(hub_obj, "modelId", hf_id),
+                    },
+                )
+            except Exception:
+                pass
+        # Minimal object if everything fails
+        return HFModelInfo(
+            hf_id=hf_id,
+            card_data={},
+            tags=[],
+            likes=None,
+            downloads_30d=None,
+            downloads_all_time=None,
+            created_at=None,
+            last_modified=None,
+            gated=None,
+            private=None,
+        )
+
+    def get_dataset_info(self, hf_id: str) -> HFModelInfo:
+        obj = self._api_dataset_json(hf_id)
+        if obj:
+            return self._to_info_from_api_obj(hf_id, obj)
+        if self.api:
+            try:
+                hub_obj = self.api.dataset_info(hf_id)  # type: ignore[attr-defined]
+                return self._to_info_from_api_obj(
+                    hf_id,
+                    {
+                        "cardData": getattr(hub_obj, "cardData", None),
+                        "tags": getattr(hub_obj, "tags", None),
+                        "likes": getattr(hub_obj, "likes", None),
+                        "downloads": getattr(hub_obj, "downloads", None),
+                        "downloadsAllTime": getattr(hub_obj, "downloadsAllTime", None),
+                        "createdAt": getattr(hub_obj, "createdAt", None),
+                        "lastModified": getattr(hub_obj, "lastModified", None),
+                        "gated": getattr(hub_obj, "gated", None),
+                        "private": getattr(hub_obj, "private", None),
+                        "datasetId": getattr(hub_obj, "datasetId", hf_id),
+                    },
+                )
+            except Exception:
+                pass
+        return HFModelInfo(
+            hf_id=hf_id,
+            card_data={},
+            tags=[],
+            likes=None,
+            downloads_30d=None,
+            downloads_all_time=None,
+            created_at=None,
+            last_modified=None,
+            gated=None,
+            private=None,
+        )
 
     # ---- GitHub URLs from README ----
 
@@ -400,26 +540,20 @@ class HFClient:
         self,
         hf_id: str,
         readme: Optional[str] = None,
-        card_data: Optional[Dict] = None,
+        card_data: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
         if readme is None:
-            readme = self.get_readme(
-                hf_id, repo_type="model"
-            ) or self.get_readme(hf_id, repo_type="dataset")
+            readme = self.get_readme(hf_id, repo_type="model") or self.get_readme(hf_id, repo_type="dataset")
         if not readme:
             return []
         if card_data is None:
             # Best-effort to grab card data (no token)
-            data = self._api_json(f"/api/models/{hf_id}") or self._api_json(
-                f"/api/datasets/{hf_id}"
-            )
+            data = self._api_model_json(hf_id) or self._api_dataset_json(hf_id)
             if data and isinstance(data.get("cardData"), dict):
                 card_data = data["cardData"]
         return GitHubMatcher.extract_urls(hf_id, readme, card_data)
 
 
 # Back-compat shim
-def github_urls_from_readme(
-    hf_id: str, readme: str, *, card_data: Dict | None = None
-) -> List[str]:
+def github_urls_from_readme(hf_id: str, readme: str, *, card_data: Dict | None = None) -> List[str]:
     return GitHubMatcher.extract_urls(hf_id, readme, card_data)

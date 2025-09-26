@@ -30,7 +30,13 @@ class PerformanceClaimsMetric(BaseMetric):
                   - 0.0-1.0: Based on benchmark performance scores
                             (averages scores and divides by 100)
         """
-        readme_content = repo_context.get("readme_text", "").lower()
+        if not repo_context:
+            return 0.0
+        
+        readme_content = repo_context.get("readme_text")
+        if readme_content is None:
+            return 0.0
+        readme_content = readme_content.lower()
 
         # Extract benchmark scores from metadata or model card
         benchmark_scores = []
