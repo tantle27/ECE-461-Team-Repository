@@ -30,14 +30,25 @@ logger = logging.getLogger("acme-cli")
 
 def setup_logging() -> None:
     """
-    Configure logging via env:
-      LOG_FILE  -> path to log file (absent = disable)
+    Configure logging via env. REQUIRED:
+      LOG_FILE must be set and writable.
       LOG_LEVEL -> 0=silent, 1=info, 2=debug, default "0.3" ~ WARNING
+    On any failure here, exit(1).
     """
     log_file = os.getenv("LOG_FILE")
     if not log_file:
-        logging.disable(logging.CRITICAL)
-        return
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        p = Path(log_file)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # Check writability explicitly
+        with open(p, "a", encoding="utf-8"):
+            pass
+    except Exception as e:
+        print(f"ERROR: cannot open LOG_FILE '{log_file}': {e}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         val = float(os.getenv("LOG_LEVEL", "0.3"))
@@ -53,16 +64,32 @@ def setup_logging() -> None:
     else:
         level = logging.DEBUG
 
-    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=log_file,
         filemode="a",
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    logger.info(
-        "logging: file=%s level=%s", log_file, logging.getLevelName(level)
-    )
+    logger.info("logging initialized: file=%s level=%s", log_file, logging.getLevelName(level))
+
+
+def _require_valid_github_token() -> str:
+    """
+    Enforces presence of a plausibly valid GitHub token in $GITHUB_TOKEN.
+    We can't check server-side validity here, but we can reject obviously bad values.
+    Exits(1) on failure.
+    """
+    tok = os.getenv("GITHUB_TOKEN", "")
+    if not tok:
+        print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
+        sys.exit(1)
+
+    # Accept common formats: legacy 'ghp_' or modern 'github_pat_'
+    if not (tok.startswith("ghp_") or tok.startswith("github_pat_")):
+        print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
+        sys.exit(1)
+
+    return tok
 
 
 # ---------------- CLI + Paths ----------------
@@ -80,7 +107,7 @@ def read_urls(arg: str) -> list[str]:
     except FileNotFoundError:
         # print(f"Error: File '{arg}' not found.", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
+    except Exception:
         # print(f"Error reading file '{arg}': {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -242,8 +269,8 @@ def _evaluate_and_persist(
         url=(ctx.hf_id or ctx.gh_url or ctx.url or ""),
         latencies={"NetScore": 0, **zero_latencies},
     )
-    # print(ns.to_ndjson_string())
-    # print(str(ns))
+    
+    print(ns.to_ndjson_string())
 
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
@@ -473,7 +500,7 @@ def main() -> int:
     if len(sys.argv) != 2:
         # print("usage: ./run <URL_FILE>", file=sys.stderr)
         return 1
-
+    _require_valid_github_token()
     url_file = sys.argv[1]
     urls = read_urls(url_file)
 
