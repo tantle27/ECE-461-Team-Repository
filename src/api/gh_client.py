@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import os
 import random
 import re
@@ -36,9 +37,7 @@ DEFAULT_TIMEOUT = 30  # seconds
 class _TimeoutHTTPAdapter(HTTPAdapter):
     """HTTPAdapter that applies a default timeout and retry policy."""
 
-    def __init__(
-        self, *args, timeout: int = DEFAULT_TIMEOUT, **kwargs
-    ) -> None:
+    def __init__(self, *args, timeout: int = DEFAULT_TIMEOUT, **kwargs) -> None:
         self._timeout = timeout
         super().__init__(*args, **kwargs)
 
@@ -104,14 +103,12 @@ def _make_session(token: Optional[str]) -> requests.Session:
 
 
 def _sleep_until_reset(resp: requests.Response) -> None:
-    remaining, reset = resp.headers.get(
-        "X-RateLimit-Remaining"
-    ), resp.headers.get("X-RateLimit-Reset")
+    remaining, reset = resp.headers.get("X-RateLimit-Remaining"), resp.headers.get(
+        "X-RateLimit-Reset"
+    )
     if remaining == "0" and reset is not None:
         try:
-            delay = max(0, int(reset) - int(time.time())) + random.uniform(
-                0.25, 0.75
-            )
+            delay = max(0, int(reset) - int(time.time())) + random.uniform(0.25, 0.75)
             delay = min(delay, 60.0)  # cap long sleeps
             logger.info(
                 "GitHub rate limit reached. Sleeping ~%.1fs (reset=%s)",
@@ -139,20 +136,45 @@ class GHClient:
 
     def __init__(self) -> None:
         token = os.getenv("GITHUB_TOKEN")
+        if not token or not self._is_token_valid(token):
+            logger.error(
+                "GHClient initialization failed: GITHUB_TOKEN is missing or invalid format."
+            )
+            print("Error: GITHUB_TOKEN is missing or invalid format.", file=sys.stderr)
+            sys.exit(1)
         self._http = _make_session(token)
+        # Check token validity by making a call to GitHub API
+        try:
+            resp = self._http.get("https://api.github.com/user")
+            if resp.status_code != 200:
+                logger.error(
+                    "GHClient initialization failed: GITHUB_TOKEN is not valid (status=%d).",
+                    resp.status_code,
+                )
+                print("Error: GITHUB_TOKEN is not valid.", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            logger.error(
+                "GHClient initialization failed: Exception during token check: %s", e
+            )
+            print("Error: Could not verify GITHUB_TOKEN.", file=sys.stderr)
+            sys.exit(1)
         self._etag_cache: dict[str, str] = {}
         logger.debug(
             "GHClient initialized (token=%s)", "present" if token else "absent"
         )
+
+    @staticmethod
+    def _is_token_valid(token: str) -> bool:
+        # Basic check: GitHub tokens usually start with 'ghp_' and are 40+ chars
+        return token.startswith("ghp_") and len(token) >= 40
 
     # -------- public --------
 
     def get_repo(self, owner: str, repo: str) -> GHRepoInfo | None:
         data = self._get_json(f"/repos/{owner}/{repo}")
         if data is None:
-            logger.debug(
-                "get_repo: %s/%s -> not found or not modified", owner, repo
-            )
+            logger.debug("get_repo: %s/%s -> not found or not modified", owner, repo)
             return None
         logger.debug("get_repo: %s/%s -> ok", owner, repo)
         return GHRepoInfo(
@@ -166,9 +188,7 @@ class GHClient:
     def get_readme_markdown(self, owner: str, repo: str) -> str | None:
         data = self._get_json(f"/repos/{owner}/{repo}/readme")
         if not data or "download_url" not in data:
-            logger.debug(
-                "get_readme_markdown: no readme for %s/%s", owner, repo
-            )
+            logger.debug("get_readme_markdown: no readme for %s/%s", owner, repo)
             return None
         url = data["download_url"]
         logger.debug("get_readme_markdown: downloading raw readme %s", url)
@@ -184,9 +204,7 @@ class GHClient:
         items: list[dict[str, Any]] = []
         page = 1
         while page <= max_pages:
-            logger.debug(
-                "list_contributors: page %d for %s/%s", page, owner, repo
-            )
+            logger.debug("list_contributors: page %d for %s/%s", page, owner, repo)
             batch = self._get_json(
                 f"/repos/{owner}/{repo}/contributors?per_page=100&page={page}"
             )
@@ -196,16 +214,12 @@ class GHClient:
             if len(batch) < 100:
                 break
             page += 1
-        logger.debug(
-            "list_contributors: total=%d for %s/%s", len(items), owner, repo
-        )
+        logger.debug("list_contributors: total=%d for %s/%s", len(items), owner, repo)
         return items
 
     # -------- internals --------
 
-    def _github_get(
-        self, url: str, *, use_etag: bool = True
-    ) -> requests.Response:
+    def _github_get(self, url: str, *, use_etag: bool = True) -> requests.Response:
         headers: dict[str, str] = {}
         if use_etag:
             etag = self._etag_cache.get(_etag_key(url))
