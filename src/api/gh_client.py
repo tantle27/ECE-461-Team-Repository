@@ -140,6 +140,7 @@ class GHClient:
             logger.error(
                 "GHClient initialization failed: GITHUB_TOKEN is missing or invalid format."
             )
+            print("Error: GITHUB_TOKEN is missing or invalid format.", file=sys.stderr)
             sys.exit(1)
         self._http = _make_session(token)
         # Check token validity by making a call to GitHub API
@@ -150,11 +151,13 @@ class GHClient:
                     "GHClient initialization failed: GITHUB_TOKEN is not valid (status=%d).",
                     resp.status_code,
                 )
+                print("Error: GITHUB_TOKEN is not valid.", file=sys.stderr)
                 sys.exit(1)
         except Exception as e:
             logger.error(
                 "GHClient initialization failed: Exception during token check: %s", e
             )
+            print("Error: Could not verify GITHUB_TOKEN.", file=sys.stderr)
             sys.exit(1)
         self._etag_cache: dict[str, str] = {}
         logger.debug(
