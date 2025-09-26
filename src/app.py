@@ -37,7 +37,7 @@ def setup_logging() -> None:
     """
     log_file = os.getenv("LOG_FILE")
     if not log_file:
-        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
+        # print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -47,7 +47,7 @@ def setup_logging() -> None:
         with open(p, "a", encoding="utf-8"):
             pass
     except Exception as e:
-        print(f"ERROR: cannot open LOG_FILE '{log_file}': {e}", file=sys.stderr)
+        # print(f"ERROR: cannot open LOG_FILE '{log_file}': {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -81,12 +81,12 @@ def _require_valid_github_token() -> str:
     """
     tok = os.getenv("GITHUB_TOKEN", "")
     if not tok:
-        print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
+        # print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     # Accept common formats: legacy 'ghp_' or modern 'github_pat_'
     if not (tok.startswith("ghp_") or tok.startswith("github_pat_")):
-        print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
+        # print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
         sys.exit(1)
 
     return tok
