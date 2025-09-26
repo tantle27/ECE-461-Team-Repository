@@ -1,22 +1,45 @@
-# #!/usr/bin/env bash
+#!/usr/bin/env bash
 
-# if [ "$#" -ne 1 ]; then
-#   echo "Usage: $0 {install|test|URL_FILE}"
-#   echo "  install   Install required Python packages"
-#   echo "  test      Run unit tests"
-#   echo "  URL_FILE  Absolute path to a file with newline-delimited URLs"
-#   exit 1
-# fi
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 {install|test|URL_FILE}"
+  echo "  install   Install required Python packages"
+  echo "  test      Run unit tests with coverage and summary"
+  echo "  URL_FILE  Absolute path to a file with newline-delimited URLs"
+  exit 1
+fi
 
-# if [ "$1" = "install" ]; then
-#   echo "Installing requirements..."
-#   pip install -r requirements.txt
-#   exit 0
-# elif [ "$1" = "test" ]; then
-#   echo "Running tests..."
-#   pytest tests/
-#   exit 0
-# else
-#   python3 src/app.py $1
-#   exit 0
-# fi
+# Ensure pytest is in PATH (for Windows user installs)
+if ! command -v pytest >/dev/null 2>&1; then
+  # Try to add the default user Scripts path for Microsoft Store Python
+  export PATH="$PATH:/c/Users/jaini/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0/LocalCache/local-packages/Python313/Scripts"
+fi
+
+if [ "$1" = "install" ]; then
+  echo "Installing requirements..."
+  pip install -r requirements.txt
+  exit $?
+elif [ "$1" = "test" ]; then
+  echo "Running tests with coverage..."
+  # Run pytest with coverage, output to a temp file
+  pytest --cov=src --cov-report=term --tb=short -v tests/ | tee .run_test_output.txt
+  status=${PIPESTATUS[0]}
+  # Parse test results (use awk instead of bc for portability)
+  pass_count=$(grep -Eo '[0-9]+ passed' .run_test_output.txt | grep -Eo '[0-9]+' | awk '{s+=$1} END {print s+0}')
+  fail_count=$(grep -Eo '[0-9]+ failed' .run_test_output.txt | grep -Eo '[0-9]+' | awk '{s+=$1} END {print s+0}')
+  error_count=$(grep -Eo '[0-9]+ error' .run_test_output.txt | grep -Eo '[0-9]+' | awk '{s+=$1} END {print s+0}')
+  total_count=$((pass_count + fail_count + error_count))
+  # Get coverage percentage
+  coverage=$(grep -Eo 'TOTAL +[0-9]+ +[0-9]+ +[0-9]+%$' .run_test_output.txt | awk '{print $4}' | tail -1 | tr -d '%')
+  [ -z "$coverage" ] && coverage=0
+  # Print required output
+  echo "$pass_count/$total_count test cases passed. $coverage% line coverage achieved."
+  # Exit 0 if all pass and coverage >= 80
+  if [ "$pass_count" = "$total_count" ] && [ "$coverage" -ge 80 ]; then
+    exit 0
+  else
+    exit 1
+  fi
+else
+  python3 src/app.py $1
+  exit $?
+fi

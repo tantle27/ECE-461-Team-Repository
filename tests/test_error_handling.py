@@ -125,41 +125,23 @@ class TestErrorHandling:
         log_output = self.log_stream.getvalue()
         assert log_output.count("API call failed") == max_retries
 
-    def test_missing_file(self):
-        """Missing file -> exit code 1 + stderr message."""
-        missing_file_path = "/nonexistent/path/file.txt"
+    def test_missing_file(self, caplog):
+        """Test missing file error logs and exits."""
+        missing_file_path = "nonexistent_file.txt"
 
         def simulate_missing_file():
-            """Simulate missing file with stderr and exit."""
-            try:
-                # Try to open non-existent file
-                open(missing_file_path, 'r')
-            except FileNotFoundError:
-                error_msg = f"Required file not found: {missing_file_path}"
-                self.logger.error(error_msg)
-                # Write to stderr
-                print(error_msg, file=sys.stderr)
-                # In real code, this would call sys.exit(1)
-                raise SystemExit(1)
+            error_msg = f"Required file not found: {missing_file_path}"
+            self.logger.error(error_msg)
+            raise SystemExit(1)
 
-        # Capture stderr
-        with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+        with caplog.at_level('ERROR', logger='test_logger'):
             with pytest.raises(SystemExit) as exc_info:
                 simulate_missing_file()
-
-            # Verify exit code is 1
             assert exc_info.value.code == 1
+            assert any("Required file not found" in m for m in caplog.messages)
+            assert any(missing_file_path in m for m in caplog.messages)
 
-            # Verify stderr message
-            stderr_output = mock_stderr.getvalue()
-            assert "Required file not found" in stderr_output
-            assert missing_file_path in stderr_output
-
-        # Verify logging occurred
-        log_output = self.log_stream.getvalue()
-        assert "Required file not found" in log_output
-
-    def test_missing_file_different_scenarios(self):
+    def test_missing_file_different_scenarios(self, caplog):
         """Test different missing file scenarios."""
         missing_files = [
             "config.json",
@@ -167,26 +149,15 @@ class TestErrorHandling:
             "urls.txt",
             "/etc/nonexistent.conf"
         ]
-
         for file_path in missing_files:
-            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+            def simulate():
+                error_msg = f"Required file not found: {file_path}"
+                self.logger.error(error_msg)
+                raise SystemExit(1)
+            with caplog.at_level('ERROR', logger='test_logger'):
                 with pytest.raises(SystemExit):
-                    # These files should not exist, so always raise SystemExit
-                    if not os.path.exists(file_path):
-                        error_msg = f"Required file not found: {file_path}"
-                        self.logger.error(error_msg)
-                        print(error_msg, file=sys.stderr)
-                        raise SystemExit(1)
-                    else:
-                        # If file exists, still simulate the error for testing
-                        error_msg = f"Required file not found: {file_path}"
-                        self.logger.error(error_msg)
-                        print(error_msg, file=sys.stderr)
-                        raise SystemExit(1)
-
-                # Verify stderr contains file path
-                stderr_output = mock_stderr.getvalue()
-                assert file_path in stderr_output
+                    simulate()
+                assert any(file_path in m for m in caplog.messages)
 
     def test_network_timeout(self):
         """Network timeout -> raises socket.timeout + logs error."""
@@ -204,31 +175,22 @@ class TestErrorHandling:
         log_output = self.log_stream.getvalue()
         assert "Network request timed out" in log_output
 
-    def test_permission_denied(self):
+    def test_permission_denied(self, caplog):
         """Permission denied -> logs error + exits with code 1."""
         restricted_path = "/root/restricted_file.txt"
-
         def simulate_permission_denied():
-            """Simulate permission denied error."""
             try:
-                # Simulate permission denied
                 raise PermissionError(f"Permission denied: {restricted_path}")
             except PermissionError as e:
                 error_msg = f"Access denied to file: {e}"
                 self.logger.error(error_msg)
-                print(error_msg, file=sys.stderr)
                 raise SystemExit(1)
-
-        with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+        with caplog.at_level('ERROR', logger='test_logger'):
             with pytest.raises(SystemExit) as exc_info:
                 simulate_permission_denied()
-
-            # Verify exit code
             assert exc_info.value.code == 1
-
-            # Verify stderr
-            stderr_output = mock_stderr.getvalue()
-            assert "Access denied" in stderr_output
+            assert any("Access denied to file" in m for m in caplog.messages)
+            assert any(restricted_path in m for m in caplog.messages)
 
     def test_invalid_configuration(self):
         """Invalid configuration -> logs error + raises ValueError."""
@@ -451,22 +413,29 @@ class TestAPIClientErrorHandling:
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.gh_client import GHClient
 
-        # Mock environment variables
-        mock_getenv.return_value = None
+        valid_token = "ghp_1234567890abcdef1234567890abcdef12345678"
+        with patch.dict(os.environ, {"GITHUB_TOKEN": valid_token}):
+            mock_getenv.return_value = valid_token
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
 
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.json.return_value = {"message": "Not Found"}
-        mock_response.raise_for_status.side_effect = Exception("Not found")
-        mock_session.get.return_value = mock_response
+            # First call: user validation (should return 200)
+            mock_user_resp = MagicMock()
+            mock_user_resp.status_code = 200
+            # Second call: repo fetch (should return 404)
+            mock_repo_resp = MagicMock()
+            mock_repo_resp.status_code = 404
+            mock_repo_resp.json.return_value = {"message": "Not Found"}
+            mock_repo_resp.raise_for_status.side_effect = Exception("Not found")
 
-        client = GHClient()
+            # Set side_effect for get: first call returns user, second returns repo
+            mock_session.get.side_effect = [mock_user_resp, mock_repo_resp]
 
-        result = client.get_repo("nonexistent", "repository")
-        assert result is None  # Should return None for not found
+            client = GHClient()
+
+            result = client.get_repo("nonexistent", "repository")
+            assert result is None  # Should return None for not found
 
     @patch('api.gh_client.requests.Session')
     @patch('api.gh_client.os.getenv')
@@ -475,22 +444,22 @@ class TestAPIClientErrorHandling:
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.gh_client import GHClient
 
-        # Mock environment variables
-        mock_getenv.return_value = "invalid-token"
+        valid_token = "ghp_1234567890abcdef1234567890abcdef12345678"
+        with patch.dict(os.environ, {"GITHUB_TOKEN": valid_token}):
+            mock_getenv.return_value = valid_token
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
 
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.json.return_value = {"message": "Bad credentials"}
-        mock_response.raise_for_status.side_effect = Exception("Unauthorized")
-        mock_session.get.return_value = mock_response
+            # User validation call returns 401 (auth error)
+            mock_user_resp = MagicMock()
+            mock_user_resp.status_code = 401
+            mock_user_resp.json.return_value = {"message": "Bad credentials"}
+            mock_user_resp.raise_for_status.side_effect = Exception("Unauthorized")
+            mock_session.get.return_value = mock_user_resp
 
-        client = GHClient()
-
-        with pytest.raises(Exception):  # Should raise for auth errors
-            client.get_repo("private", "repository")
+            with pytest.raises(SystemExit):  # Should exit for auth errors
+                GHClient()
 
     @patch('api.gh_client.requests.Session')
     @patch('api.gh_client.os.getenv')
@@ -499,31 +468,26 @@ class TestAPIClientErrorHandling:
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.gh_client import GHClient
 
-        # Mock environment variables
-        mock_getenv.return_value = None
+        valid_token = "ghp_1234567890abcdef1234567890abcdef12345678"
+        with patch.dict(os.environ, {"GITHUB_TOKEN": valid_token}):
+            mock_getenv.return_value = valid_token
 
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
 
-        mock_response = MagicMock()
-        mock_response.status_code = 403
-        mock_response.headers = {
-            'x-ratelimit-limit': '60',
-            'x-ratelimit-remaining': '0',
-            'x-ratelimit-reset': '1640995200'
-        }
-        mock_response.json.return_value = {
-            "message": "API rate limit exceeded"
-        }
-        mock_session.get.return_value = mock_response
+            # User validation call returns 403 (rate limit exceeded)
+            mock_user_resp = MagicMock()
+            mock_user_resp.status_code = 403
+            mock_user_resp.headers = {
+                'x-ratelimit-limit': '60',
+                'x-ratelimit-remaining': '0',
+                'x-ratelimit-reset': '1640995200'
+            }
+            mock_user_resp.json.return_value = {"message": "API rate limit exceeded"}
+            mock_session.get.return_value = mock_user_resp
 
-        client = GHClient()
-
-        # The test setup mocks session.get to return 403 directly,
-        # but the GitHub client's internal _get_json method would handle this
-        # and either return data or raise an exception.
-        # For this test, we'll just verify the client was created
-        assert client is not None
+            with pytest.raises(SystemExit):  # Should exit for rate limit exceeded
+                GHClient()
 
     @patch('api.hf_client.HfApi')
     def test_hf_client_api_initialization_failure(self, mock_hf_api):

@@ -190,6 +190,9 @@ class LicenseMetric(BaseMetric):
         self._expose_parts = expose_parts
 
     def evaluate(self, repo_context: dict) -> float:
+        # Defensive: handle None or non-dict input
+        if not isinstance(repo_context, dict):
+            return 0.0
         ctx = repo_context.get("_ctx_obj")
         if isinstance(ctx, RepoContext):
             base = {
