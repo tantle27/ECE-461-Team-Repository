@@ -2,7 +2,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 from collections.abc import Mapping
 
 import requests
@@ -10,7 +10,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 try:
-    # Optional: available in many environments, but not required
     from huggingface_hub import HfApi  # type: ignore
 except Exception:  # pragma: no cover
     HfApi = None  # type: ignore
@@ -181,8 +180,10 @@ class GitHubMatcher:
 
     @staticmethod
     def _ver_bonus(hf_id: str, repo: str) -> float:
-        hv = [tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(hf_id or "")]
-        rv = [tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(repo or "")]
+        hv = [
+            tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(hf_id or "")]
+        rv = [
+            tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(repo or "")]
         if not hv or not rv:
             return 0.0
         return max(1.0 if x == y else 0.9 for x in hv for y in rv)
@@ -192,7 +193,8 @@ class GitHubMatcher:
         if not readme:
             return []
         aliases = {cls._normalize(hf_id)} | (
-            {cls._normalize(card.get("name"))} if card and isinstance(card.get("name"), str) else set()
+            {cls._normalize(
+                card.get("name"))} if card and isinstance(card.get("name"), str) else set()
         )
         hf_org = hf_id.replace("datasets/", "").split("/", 1)[0].lower() if "/" in hf_id else ""
         cands: List[tuple[float, str, str]] = []
@@ -274,6 +276,7 @@ class HFClient:
                 if isinstance(p, str) and p:
                     out.append(HFFileInfo(path=p, size=_safe_int(s.get("size"))))
         return out
+    
     def list_files(
         self, hf_id: str, *, repo_type: str = "model"
     ) -> List[HFFileInfo]:
@@ -302,6 +305,7 @@ class HFClient:
             for f in files:
                 out.append(HFFileInfo(path=f, size=sizes.get(f)))
         return out
+    
     def _parse_tree_html(self, base_path: str, revision: str = "main") -> List[HFFileInfo]:
         """
         Fallback: parse HTML from /<base>/tree/<revision> to list files (sizes unknown).
@@ -338,7 +342,7 @@ class HFClient:
                 names = self.api.list_repo_files(hf_id, repo_type="model")
                 sizes: Dict[str, int | None] = {}
                 try:
-                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type="model")  # type: ignore[attr-defined]
+                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type="model")
                     for info in infos or []:
                         p = getattr(info, "path", None)
                         sz = getattr(info, "size", None)
@@ -370,7 +374,7 @@ class HFClient:
                 names = self.api.list_repo_files(hf_id, repo_type="dataset")
                 sizes: Dict[str, int | None] = {}
                 try:
-                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type="dataset")  # type: ignore[attr-defined]
+                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type="dataset")
                     for info in infos or []:
                         p = getattr(info, "path", None)
                         sz = getattr(info, "size", None)
@@ -418,7 +422,8 @@ class HFClient:
 
     # ---- model_index.json (raw) ----
 
-    def get_model_index_json(self, hf_id: str, *, revision: str = "main") -> Optional[Dict[str, Any]]:
+    def get_model_index_json(
+            self, hf_id: str, *, revision: str = "main") -> Optional[Dict[str, Any]]:
         plain = hf_id.removeprefix("datasets/")
         urls = [
             f"https://huggingface.co/{plain}/raw/{revision}/model_index.json",
@@ -543,7 +548,8 @@ class HFClient:
         card_data: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
         if readme is None:
-            readme = self.get_readme(hf_id, repo_type="model") or self.get_readme(hf_id, repo_type="dataset")
+            readme = self.get_readme(
+                hf_id, repo_type="model") or self.get_readme(hf_id, repo_type="dataset")
         if not readme:
             return []
         if card_data is None:
