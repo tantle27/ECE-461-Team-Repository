@@ -12,6 +12,7 @@ try:
 except Exception:
     LLMClient = None
 import logging
+
 logger = logging.getLogger("acme-cli")
 
 
@@ -57,8 +58,9 @@ class CodeQualityMetric(BaseMetric):
         readme = self._readme(ctx)
         base = self._base_score(readme, files)
         llm_ready = (
-            self._use_llm and self._llm and
-            getattr(self._llm, "provider", None)
+            self._use_llm
+            and self._llm
+            and getattr(self._llm, "provider", None)
         )
         if not llm_ready:
             logger.info("CodeQuality LLM not ready, using base score only.")
@@ -108,8 +110,15 @@ class CodeQualityMetric(BaseMetric):
 
     def _has_code_hints(self, readme: str) -> bool:
         r = (readme or "").lower()
-        keys = ("```", "import ", "from ", "def ", "class ",
-                "pytorch", "transformers")
+        keys = (
+            "```",
+            "import ",
+            "from ",
+            "def ",
+            "class ",
+            "pytorch",
+            "transformers",
+        )
         return any(k in r for k in keys)
 
     def _signals(self, readme: str, files: list[str]) -> Dict[str, Any]:
@@ -144,15 +153,21 @@ class CodeQualityMetric(BaseMetric):
             "pytest_cfg": has("pytest.ini", "tox.ini"),
             "ci": (
                 has(
-                    ".github/workflows", ".gitlab-ci.yml",
-                    ".circleci/config.yml", "azure-pipelines.yml",
+                    ".github/workflows",
+                    ".gitlab-ci.yml",
+                    ".circleci/config.yml",
+                    "azure-pipelines.yml",
                     ".travis.yml",
                 )
                 or any(w in rl for w in ("github actions", "workflow", "ci/"))
             ),
             "lint": has(
-                ".flake8", ".pylintrc", "ruff.toml",
-                ".eslintrc", ".eslintrc.json", ".eslintrc.js",
+                ".flake8",
+                ".pylintrc",
+                "ruff.toml",
+                ".eslintrc",
+                ".eslintrc.json",
+                ".eslintrc.js",
                 "eslint.config.js",
             ),
             "fmt": has("pyproject.toml", ".prettierrc", ".isort.cfg"),
@@ -163,24 +178,29 @@ class CodeQualityMetric(BaseMetric):
                 ),
                 "src_layout": any(p.startswith("src/") for p in fs),
                 "manifest": "manifest.in" in fs,
-                "reqs": (
-                    "requirements.txt" in fs or "environment.yml" in fs
-                ),
+                "reqs": ("requirements.txt" in fs or "environment.yml" in fs),
             },
             "rq": {
                 "len": len(readme or ""),
                 "install": any(
                     k in rl
                     for k in (
-                        "pip install", "conda install", "poetry add",
-                        "pipx", "pip install -e",
+                        "pip install",
+                        "conda install",
+                        "poetry add",
+                        "pipx",
+                        "pip install -e",
                     )
                 ),
                 "usage": any(
                     k in rl
                     for k in (
-                        "usage", "example", "inference",
-                        "getting started", "quickstart", "quick start",
+                        "usage",
+                        "example",
+                        "inference",
+                        "getting started",
+                        "quickstart",
+                        "quick start",
                     )
                 ),
                 "badges": ("![" in (readme or ""))
@@ -231,8 +251,13 @@ class CodeQualityMetric(BaseMetric):
 
     def _weights(self, s: Dict[str, Any]) -> Dict[str, float]:
         w = {
-            "tests": 0.18, "ci": 0.12, "lint_fmt": 0.16, "typing": 0.12,
-            "docs": 0.26, "structure": 0.10, "recency": 0.06,
+            "tests": 0.18,
+            "ci": 0.12,
+            "lint_fmt": 0.16,
+            "typing": 0.12,
+            "docs": 0.26,
+            "structure": 0.10,
+            "recency": 0.06,
         }
         if s["test_file_count"] > 0 or s["test_has_dir"]:
             w["tests"] += 0.05
@@ -285,8 +310,7 @@ class CodeQualityMetric(BaseMetric):
         signals: Dict[str, Any],
     ) -> Tuple[float, Dict[str, float]]:
         sys_p = (
-            "You are a software-quality rater. "
-            "Return ONLY one JSON object."
+            "You are a software-quality rater. " "Return ONLY one JSON object."
         )
         sample_files = "\n".join(files[:3500])
         prompt = (
@@ -311,8 +335,12 @@ class CodeQualityMetric(BaseMetric):
 
         parts = {
             k: g(k)
-            for k in ("maintainability", "readability",
-                      "documentation", "reusability")
+            for k in (
+                "maintainability",
+                "readability",
+                "documentation",
+                "reusability",
+            )
         }
         llm = (
             0.33 * parts["maintainability"]

@@ -229,9 +229,7 @@ def find_code_repo_url(
     return verified[0]
 
 
-_VERSION_RE = re.compile(
-    r"(?<![a-z0-9])v?(\d+(?:\.\d+)*)(?![a-z0-9])", re.I
-)
+_VERSION_RE = re.compile(r"(?<![a-z0-9])v?(\d+(?:\.\d+)*)(?![a-z0-9])", re.I)
 
 
 def _norm(s: str) -> str:
@@ -240,10 +238,17 @@ def _norm(s: str) -> str:
     for pre in ("hf-", "huggingface-", "the-"):
         if s.startswith(pre):
             s = s[len(pre):]
-    for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo",
-                "-code"):
+    for suf in (
+        "-dev",
+        "-devkit",
+        "-main",
+        "-release",
+        "-project",
+        "-repo",
+        "-code",
+    ):
         if s.endswith(suf):
-            s = s[:-len(suf)]
+            s = s[: -len(suf)]
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s
 
@@ -253,6 +258,7 @@ def _ver_bonus(hf_id: str | None, repo_name: str | None) -> float:
     Small score bonus based on version similarity between HF id and GH repo
     name. Exact match → +0.30, off-by-one segment → +0.10, otherwise -0.20.
     """
+
     def parse_vers(txt: str | None) -> list[tuple[int, ...]]:
         if not txt:
             return []

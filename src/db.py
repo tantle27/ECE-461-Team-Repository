@@ -163,16 +163,16 @@ def upsert_resource(
             "created_at": base.get("created_at"),
             "last_modified": base.get("last_modified"),
             "gated": (
-                int(bool(base["gated"])) if base.get("gated") is not None
+                int(bool(base["gated"]))
+                if base.get("gated") is not None
                 else None
             ),
             "private": (
-                int(bool(base["private"])) if base.get("private") is not None
+                int(bool(base["private"]))
+                if base.get("private") is not None
                 else None
             ),
-            "contributors_json": _json_dump(
-                base.get("contributors") or []
-            ),
+            "contributors_json": _json_dump(base.get("contributors") or []),
             "commit_history_json": _json_dump(
                 base.get("commit_history") or []
             ),

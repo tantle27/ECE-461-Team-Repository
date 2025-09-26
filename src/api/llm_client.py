@@ -39,14 +39,19 @@ def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
 class LLMClient:
     def __init__(self) -> None:
         self.provider: str | None = None
-        if os.getenv("GENAI_API_KEY"):
+        self.api_key: str | None = (
+            os.getenv("GENAI_API_KEY") or ""
+        ).strip() or None
+        if self.api_key:
             self.provider = "purdue_genai"
             self._genai_url = os.getenv(
                 "GENAI_API_URL",
                 "https://genai.rcac.purdue.edu/api/chat/completions",
             )
             self._genai_model = os.getenv("GENAI_MODEL", "llama3.1:latest")
-        # else remains None
+
+    def is_available(self) -> bool:
+        return bool(self.provider) and bool(self.api_key)
 
     def ask_json(
         self,
@@ -54,27 +59,32 @@ class LLMClient:
         prompt: str,
         *,
         max_tokens: int = 800,
-        temperature: float = 0.0
+        temperature: float = 0.0,
     ) -> LLMResult:
-        if not self.provider:
+        if not self.is_available():
             return LLMResult(
-                False, None, None, "No LLM provider configured", 0)
+                False, None, None, "No LLM provider configured", 0
+            )
 
         start = time.time()
         try:
             raw = ""
             if self.provider == "purdue_genai":
                 raw = self._call_purdue_genai(
-                    system, prompt, max_tokens, temperature)
+                    system, prompt, max_tokens, temperature
+                )
             else:
                 raise RuntimeError(f"Unsupported provider: {self.provider}")
 
             parsed = _clamp_json_object(raw)
             return LLMResult(
-                True, parsed, raw, None, int((time.time() - start) * 1000))
+                True, parsed, raw, None, int((time.time() - start) * 1000)
+            )
         except Exception as e:
             return LLMResult(
-                False, None, None, str(e), int((time.time() - start) * 1000))
+                False, None, None, str(e), int((time.time() - start) * 1000)
+            )
+
     # ---- providers ----
 
     def _call_purdue_genai(

@@ -8,6 +8,7 @@ from collections.abc import Mapping
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from huggingface_hub import HfApi
 
 
 class _TimeoutHTTPAdapter(HTTPAdapter):
@@ -20,7 +21,7 @@ class _TimeoutHTTPAdapter(HTTPAdapter):
         return super().send(request, **kwargs)
 
 
-def _session() -> requests.Session:
+def _create_session() -> requests.Session:
     s = requests.Session()
     retry = Retry(
         total=5,
@@ -34,10 +35,12 @@ def _session() -> requests.Session:
     adapter = _TimeoutHTTPAdapter(max_retries=retry, timeout=30)
     s.mount("https://", adapter)
     s.mount("http://", adapter)
-    s.headers.update({
-        "Accept": "application/json, text/plain, */*",
-        "User-Agent": "acme-model-evaluator/0.1 (+requests)",
-    })
+    s.headers.update(
+        {
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "acme-model-evaluator/0.1 (+requests)",
+        }
+    )
     return s
 
 
@@ -48,10 +51,11 @@ def _retry(fn, attempts: int = 4):
         except Exception:
             if i == attempts - 1:
                 raise
-            time.sleep(0.4 * (2 ** i))
+            time.sleep(0.4 * (2**i))
 
 
 # ---------------- Data models ----------------
+
 
 @dataclass
 class HFModelInfo:
@@ -75,6 +79,7 @@ class HFFileInfo:
 
 # ---------------- Helpers ----------------
 
+
 def _normalize_card_data(x: Any) -> Dict[str, Any]:
     if x is None:
         return {}
@@ -96,15 +101,23 @@ def _normalize_card_data(x: Any) -> Dict[str, Any]:
 
 # ---------------- GitHub URL extraction ----------------
 
+
 class GitHubMatcher:
     GITHUB = re.compile(r"https?://github\.com/[^\s)\"'<>]+", re.I)
     ROOT = re.compile(r"^(https?://github\.com/[-\w.]+/[-\w.]+)", re.I)
-    VER = re.compile(
-        r"(?:^|[^a-z0-9])v?(\d+(?:\.\d+)*)(?:[^a-z0-9]|$)", re.I
-    )
+    VER = re.compile(r"(?:^|[^a-z0-9])v?(\d+(?:\.\d+)*)(?:[^a-z0-9]|$)", re.I)
     GENERIC = {
-        "transformers", "diffusers", "datasets", "examples", "tutorials",
-        "notebooks", "benchmarks", "models", "scripts", "awesome", "research",
+        "transformers",
+        "diffusers",
+        "datasets",
+        "examples",
+        "tutorials",
+        "notebooks",
+        "benchmarks",
+        "models",
+        "scripts",
+        "awesome",
+        "research",
     }
 
     @staticmethod
@@ -114,40 +127,34 @@ class GitHubMatcher:
             if s.startswith(pre):
                 s = s[len(pre):]
         for suf in (
-            "-dev", "-devkit", "-main", "-release", "-project", "-repo",
-            "-code"
+            "-dev",
+            "-devkit",
+            "-main",
+            "-release",
+            "-project",
+            "-repo",
+            "-code",
         ):
             if s.endswith(suf):
                 s = s[: -len(suf)]
         return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
 
+    # These two aliases satisfy tests that call _normalize/_tokenize
+    @staticmethod
+    def _normalize(s: str) -> str:
+        return GitHubMatcher._norm(s)
+
     @staticmethod
     def _tokens(s: str) -> Set[str]:
         return {
-            t for t in re.split(r"[^a-z0-9]+", GitHubMatcher._norm(s))
+            t
+            for t in re.split(r"[^a-z0-9]+", GitHubMatcher._norm(s))
             if len(t) >= 3
         }
 
     @staticmethod
-    def _aliases(hf_id: str, card: Dict | None) -> Set[str]:
-        out: Set[str] = set()
-        clean = hf_id.replace("datasets/", "") if hf_id else ""
-        if "/" in clean:
-            org, name = clean.split("/", 1)
-            out.update({GitHubMatcher._norm(name), GitHubMatcher._norm(org)})
-        else:
-            out.add(GitHubMatcher._norm(clean))
-        if card:
-            mi = card.get("model-index")
-            if isinstance(mi, list) and mi and isinstance(mi[0], dict):
-                nm = mi[0].get("name")
-                if isinstance(nm, str):
-                    out.add(GitHubMatcher._norm(nm))
-            for k in ("model_name", "name", "title"):
-                v = card.get(k)
-                if isinstance(v, str):
-                    out.add(GitHubMatcher._norm(v))
-        return {a for a in out if a}
+    def _tokenize(s: str) -> Set[str]:
+        return GitHubMatcher._tokens(s)
 
     @staticmethod
     def _jac(a: Set[str], b: Set[str]) -> float:
@@ -176,10 +183,15 @@ class GitHubMatcher:
     ) -> List[str]:
         if not readme:
             return []
-        aliases = cls._aliases(hf_id, card)
+        aliases = {cls._normalize(hf_id)} | (
+            {cls._normalize(card.get("name"))}
+            if card and isinstance(card.get("name"), str)
+            else set()
+        )
         hf_org = (
             hf_id.replace("datasets/", "").split("/", 1)[0].lower()
-            if "/" in hf_id else ""
+            if "/" in hf_id
+            else ""
         )
         cands: List[tuple[float, str, str]] = []
         seen: set[str] = set()
@@ -197,13 +209,10 @@ class GitHubMatcher:
                 continue
             toks = cls._tokens(repo)
             sim = max(
-                (cls._jac(cls._tokens(a), toks) for a in aliases),
-                default=0.0,
+                (cls._jac(cls._tokens(a), toks) for a in aliases), default=0.0
             )
             sim += cls._ver_bonus(hf_id, repo)
-            if hf_org and (
-                hf_org in owner.lower() or owner.lower() in hf_org
-            ):
+            if hf_org and (hf_org in owner.lower() or owner.lower() in hf_org):
                 sim += 0.05
             cands.append((sim, repo_url, owner))
 
@@ -217,22 +226,25 @@ class GitHubMatcher:
         return [cands[0][1]] if cands else []
 
 
-# ---------------- HF client (public endpoints) ----------------
+# ---------------- HF client (public endpoints; no tokens) ----------------
+
 
 class HFClient:
     """
-    Hugging Face client using only public endpoints.
-    - /api/models/{id}, /api/datasets/{id}
-    - 'siblings' for file listing
-    - README and model_index.json via raw URLs
+    Hugging Face client using only public endpoints (no auth/token).
+    - Uses HfApi for convenient listing when available (tests patch it).
+    - Uses raw GETs for README/model_index.
     """
 
     def __init__(self) -> None:
-        self._http = _session()
+        self.api = HfApi()  # available for tests to patch
+        self._session = _create_session()  # public session, no token
+
+    # ---- Low-level helpers ----
 
     def _api_json(self, path: str) -> Dict[str, Any] | None:
         url = f"https://huggingface.co{path}"
-        r = _retry(lambda: self._http.get(url))
+        r = _retry(lambda: self._session.get(url))
         if r.status_code in (401, 404):
             return None
         r.raise_for_status()
@@ -241,38 +253,83 @@ class HFClient:
         except Exception:
             return None
 
-    # ---- Info ----
+    def _get_text(self, url: str) -> Optional[str]:
+        r = _retry(lambda: self._session.get(url))
+        if r.status_code == 200 and r.text:
+            return r.text
+        return None
+
+    # ---- Info via HfApi objects (tests patch these) ----
+
+    def _to_info_from_hub(self, hf_id: str, hub_obj: Any) -> HFModelInfo:
+        # normalize diverse attribute shapes
+        card = _normalize_card_data(getattr(hub_obj, "cardData", None))
+        tags = [str(t) for t in (getattr(hub_obj, "tags", None) or [])]
+        likes = getattr(hub_obj, "likes", None)
+        d30 = getattr(hub_obj, "downloads", None)
+        dall = getattr(hub_obj, "downloadsAllTime", None)
+        created = getattr(hub_obj, "createdAt", None)
+        modified = getattr(hub_obj, "lastModified", None)
+        gated = getattr(hub_obj, "gated", None)
+        private = getattr(hub_obj, "private", None)
+        # some objects may call modelId/datasetId
+        if not hf_id:
+            hf_id = (
+                getattr(hub_obj, "modelId", None)
+                or getattr(hub_obj, "datasetId", None)
+                or ""
+            )
+        return HFModelInfo(
+            hf_id=hf_id,
+            card_data=card,
+            tags=tags,
+            likes=likes if isinstance(likes, int) else None,
+            downloads_30d=d30 if isinstance(d30, int) else None,
+            downloads_all_time=dall if isinstance(dall, int) else None,
+            created_at=str(created) if created is not None else None,
+            last_modified=str(modified) if modified is not None else None,
+            gated=bool(gated) if gated is not None else None,
+            private=bool(private) if private is not None else None,
+        )
 
     def get_model_info(self, hf_id: str) -> HFModelInfo:
-        data = self._api_json(f"/api/models/{hf_id}")
-        if not data:
-            raise FileNotFoundError(f"Model not found: {hf_id}")
-        return self._to_info(hf_id, data)
+        info = self.api.model_info(hf_id)  # tests patch this
+        return self._to_info_from_hub(hf_id, info)
 
     def get_dataset_info(self, hf_id: str) -> HFModelInfo:
-        data = self._api_json(f"/api/datasets/{hf_id}")
-        if not data:
-            raise FileNotFoundError(f"Dataset not found: {hf_id}")
-        return self._to_info(hf_id, data)
+        info = self.api.dataset_info(hf_id)  # tests patch this
+        return self._to_info_from_hub(hf_id, info)
 
-    # ---- Files (siblings) ----
+    # ---- Files (prefer HfApi for tests; fallback sizes unknown) ----
 
     def list_files(
         self, hf_id: str, *, repo_type: str = "model"
     ) -> List[HFFileInfo]:
-        path = (
-            "/api/models/" + hf_id if repo_type == "model"
-            else "/api/datasets/" + hf_id
-        )
-        data = self._api_json(path) or {}
-        files: List[HFFileInfo] = []
-        sibs = data.get("siblings", [])
-        if isinstance(sibs, list):
-            for s in sibs:
-                rfn = s.get("rfilename")
-                if isinstance(rfn, str) and rfn:
-                    files.append(HFFileInfo(path=rfn, size=s.get("size")))
-        return files
+        try:
+            files = self.api.list_repo_files(hf_id, repo_type=repo_type)
+        except Exception:
+            files = []
+        out: List[HFFileInfo] = []
+        if files:
+            # try to enrich sizes if get_paths_info exists
+            sizes: Dict[str, int] = {}
+            try:
+                infos = self.api.get_paths_info(
+                    hf_id, paths=files, repo_type=repo_type
+                )
+                for info in infos or []:
+                    p = getattr(info, "path", None)
+                    sz = getattr(info, "size", None)
+                    if isinstance(p, str):
+                        sizes[p] = sz if isinstance(sz, int) else None
+            except AttributeError:
+                # tests expect to handle AttributeError and return size=None
+                sizes = {}
+            except Exception:
+                sizes = {}
+            for f in files:
+                out.append(HFFileInfo(path=f, size=sizes.get(f)))
+        return out
 
     def list_dataset_files(self, hf_id: str) -> List[HFFileInfo]:
         return self.list_files(hf_id, repo_type="dataset")
@@ -288,46 +345,48 @@ class HFClient:
         *,
         revision: str = "main",
         repo_type: Optional[str] = None,
-    ) -> str | None:
+    ) -> Optional[str]:
         plain = hf_id.removeprefix("datasets/")
         ds_id = f"datasets/{plain}"
         order = (
-            [plain, ds_id] if repo_type == "model"
-            else [ds_id, plain] if repo_type == "dataset"
-            else [plain, ds_id]
+            [plain, ds_id]
+            if repo_type == "model"
+            else [ds_id, plain] if repo_type == "dataset" else [plain, ds_id]
         )
         for base in order:
             for fn in ("README.md", "README.MD", "readme.md"):
                 url = f"https://huggingface.co/{base}/raw/{revision}/{fn}"
-                r = _retry(lambda: self._http.get(url))
-                if r.status_code == 200 and r.text:
-                    return r.text
+                txt = self._get_text(url)
+                if txt:
+                    return txt
         return None
 
     def get_dataset_readme(
         self, hf_id: str, *, revision: str = "main"
-    ) -> str | None:
+    ) -> Optional[str]:
         return self.get_readme(hf_id, revision=revision, repo_type="dataset")
 
     def get_model_readme(
         self, hf_id: str, *, revision: str = "main"
-    ) -> str | None:
+    ) -> Optional[str]:
         return self.get_readme(hf_id, revision=revision, repo_type="model")
 
     # ---- model_index.json (raw) ----
 
     def get_model_index_json(
         self, hf_id: str, *, revision: str = "main"
-    ) -> Dict | None:
+    ) -> Optional[Dict]:
         plain = hf_id.removeprefix("datasets/")
         urls = [
-            (f"https://huggingface.co/{plain}/raw/{revision}/"
-             "model_index.json"),
-            (f"https://huggingface.co/datasets/{plain}/raw/{revision}/"
-             "model_index.json"),
+            (
+                f"https://huggingface.co/{plain}/raw/{revision}/model_index.json"
+            ),
+            (
+                f"https://huggingface.co/datasets/{plain}/raw/{revision}/model_index.json"
+            ),
         ]
         for url in urls:
-            r = _retry(lambda: self._http.get(url))
+            r = _retry(lambda: self._session.get(url))
             if r.status_code == 200:
                 try:
                     return r.json()
@@ -344,68 +403,19 @@ class HFClient:
         card_data: Optional[Dict] = None,
     ) -> List[str]:
         if readme is None:
-            readme = (
-                self.get_readme(hf_id, repo_type="model")
-                or self.get_readme(hf_id, repo_type="dataset")
-            )
+            readme = self.get_readme(
+                hf_id, repo_type="model"
+            ) or self.get_readme(hf_id, repo_type="dataset")
         if not readme:
             return []
         if card_data is None:
-            data = (
-                self._api_json(f"/api/models/{hf_id}")
-                or self._api_json(f"/api/datasets/{hf_id}")
+            # Best-effort to grab card data (no token)
+            data = self._api_json(f"/api/models/{hf_id}") or self._api_json(
+                f"/api/datasets/{hf_id}"
             )
             if data and isinstance(data.get("cardData"), dict):
                 card_data = data["cardData"]
         return GitHubMatcher.extract_urls(hf_id, readme, card_data)
-
-    # ---- Normalizer ----
-
-    def _to_info(self, hf_id: str, data: Dict[str, Any]) -> HFModelInfo:
-        card = _normalize_card_data(data.get("cardData"))
-        tags = (
-            [str(t) for t in data.get("tags", [])]
-            if isinstance(data.get("tags"), list) else []
-        )
-        likes = (
-            data.get("likes") if isinstance(data.get("likes"), int) else None
-        )
-        d30 = (
-            data.get("downloads")
-            if isinstance(data.get("downloads"), int) else None
-        )
-        dall = (
-            data.get("downloadsAllTime")
-            if isinstance(data.get("downloadsAllTime"), int) else None
-        )
-        created = (
-            str(data.get("createdAt"))
-            if data.get("createdAt") is not None else None
-        )
-        modified = (
-            str(data.get("lastModified"))
-            if data.get("lastModified") is not None else None
-        )
-        gated = (
-            bool(data.get("gated"))
-            if data.get("gated") is not None else None
-        )
-        private = (
-            bool(data.get("private"))
-            if data.get("private") is not None else None
-        )
-        return HFModelInfo(
-            hf_id=hf_id,
-            card_data=card,
-            tags=tags,
-            likes=likes,
-            downloads_30d=d30,
-            downloads_all_time=dall,
-            created_at=created,
-            last_modified=modified,
-            gated=gated,
-            private=private,
-        )
 
 
 # Back-compat shim

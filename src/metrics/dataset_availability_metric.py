@@ -47,11 +47,16 @@ class DatasetAvailabilityMetric(BaseMetric):
         return any(self._is_public_dataset(ds) for ds in (datasets or []))
 
     def _is_public_code(self, code: RepoContext) -> bool:
-        # If we know it's private → not public
         if code.private is True:
             return False
-        has_signals = bool(code.readme_text or code.contributors or code.files)
-        return bool(code.gh_url) and (code.private is False or has_signals)
+        has_signals = bool(
+            getattr(code, "readme_text", None)
+            or getattr(code, "contributors", [])
+            or getattr(code, "files", [])
+        )
+        return bool(getattr(code, "gh_url", None)) and (
+            code.private is False or has_signals
+        )
 
     def _any_public_code(
         self, codes: Iterable[RepoContext], gh_url: str | None

@@ -77,8 +77,10 @@ class DatasetQualityMetric(BaseMetric):
         return heuristic_score
 
     def get_description(self) -> str:
-        return ("Evaluates dataset quality via validation/diversity/"
-                "completeness + optional LLM rubric")
+        return (
+            "Evaluates dataset quality via validation/diversity/"
+            "completeness + optional LLM rubric"
+        )
 
     # ---------------- context selection ----------------
 
@@ -113,9 +115,9 @@ class DatasetQualityMetric(BaseMetric):
         return self._compute_heuristics(tags, card, readme)
 
     def _heuristics_from_dataset(self, ds: RepoContext) -> Dict[str, float]:
-        readme = (ds.readme_text or "").lower()
-        tags = [str(t).lower() for t in (ds.tags or [])]
-        card = ds.card_data or {}
+        readme = (getattr(ds, "readme_text", "") or "").lower()
+        tags = [str(t).lower() for t in (getattr(ds, "tags", []) or [])]
+        card = getattr(ds, "card_data", {}) or {}
         return self._compute_heuristics(tags, card, readme)
 
     def _compute_heuristics(
@@ -214,11 +216,26 @@ class DatasetQualityMetric(BaseMetric):
 
     def _combine_heuristics(
         self,
-        *,
-        has_validation: float,
-        data_diversity: float,
-        data_completeness: float,
+        *args,
+        has_validation: float | None = None,
+        data_diversity: float | None = None,
+        data_completeness: float | None = None,
     ) -> float:
+        if args and (
+            has_validation is None
+            and data_diversity is None
+            and data_completeness is None
+        ):
+            try:
+                has_validation, data_diversity, data_completeness = args[:3]
+            except Exception:
+                pass
+        has_validation = 0.0 if has_validation is None else has_validation
+        data_diversity = 0.0 if data_diversity is None else data_diversity
+        data_completeness = (
+            0.0 if data_completeness is None else data_completeness
+        )
+
         w = self._hw
         score = (
             w.validation * self._clamp01(has_validation)
@@ -268,35 +285,36 @@ class DatasetQualityMetric(BaseMetric):
         return self._clamp01(base + bonus), parts
 
     def _make_llm_prompt(self, ds: RepoContext) -> str:
-        readme = (ds.readme_text or "")[:6000]
-        tags = ", ".join(ds.tags or [])
-        card = ds.card_data or {}
+        readme = (getattr(ds, "readme_text", "") or "")[:6000]
+        tags_list = list(getattr(ds, "tags", []) or [])
+        tags = ", ".join(tags_list)
+        card = getattr(ds, "card_data", {}) or {}
         return f"""
-You are evaluating dataset quality for ML reuse.
+    You are evaluating dataset quality for ML reuse.
 
-Rate the following sub-criteria strictly in [0,1]:
-- has_validation: Evidence of schema/validation/checks/quality gates.
-- data_diversity: Diversity across classes/languages/domains/demographics.
-- data_completeness: Splits/labels/metadata sufficient for normal training/eval
-- documentation: Clarity of README/card (task, license, use, limits, issues).
-- ethical_considerations: Bias/safety notes, provenance, consent.
+    Rate the following sub-criteria strictly in [0,1]:
+    - has_validation: Evidence of schema/validation/checks/quality gates.
+    - data_diversity: Diversity across classes/languages/domains/demographics.
+    - data_completeness: Splits/labels/metadata sufficient for normal training/eval
+    - documentation: Clarity of README/card (task, license, use, limits, issues).
+    - ethical_considerations: Bias/safety notes, provenance, consent.
 
-Return ONLY JSON with keys:
-{{
-  "has_validation": 0.0,
-  "data_diversity": 0.0,
-  "data_completeness": 0.0,
-  "documentation": 0.0,
-  "ethical_considerations": 0.0
-}}
+    Return ONLY JSON with keys:
+    {{
+    "has_validation": 0.0,
+    "data_diversity": 0.0,
+    "data_completeness": 0.0,
+    "documentation": 0.0,
+    "ethical_considerations": 0.0
+    }}
 
-Context (Hugging Face tags/card & README excerpt):
-Tags: {tags}
-Card: {card}
----
-{readme}
----
-""".strip()
+    Context (Hugging Face tags/card & README excerpt):
+    Tags: {tags}
+    Card: {card}
+    ---
+    {readme}
+    ---
+    """.strip()
 
     # ---------------- utils ----------------
 

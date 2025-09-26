@@ -398,14 +398,10 @@ class TestAPIClientErrorHandling:
             mock_session.get("https://huggingface.co/api/models/slow-model")
 
     @patch('api.hf_client.requests.Session')
-    @patch('api.hf_client.os.getenv')
-    def test_hf_client_rate_limit_error(self, mock_getenv, mock_session_class):
+    def test_hf_client_rate_limit_error(self, mock_session_class):
         """Test HF client handling of rate limit (429) errors."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.hf_client import HFClient
-
-        # Mock environment variables
-        mock_getenv.return_value = None
 
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
@@ -423,14 +419,10 @@ class TestAPIClientErrorHandling:
             client.get_model_info("popular-model")
 
     @patch('api.hf_client.requests.Session')
-    @patch('api.hf_client.os.getenv')
-    def test_hf_client_invalid_json_response(self, mock_getenv, mock_session_class):
+    def test_hf_client_invalid_json_response(self, mock_session_class):
         """Test HF client handling of invalid JSON responses."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.hf_client import HFClient
-
-        # Mock environment variables
-        mock_getenv.return_value = None
 
         mock_session = MagicMock()
         mock_session_class.return_value = mock_session
@@ -534,14 +526,10 @@ class TestAPIClientErrorHandling:
         assert client is not None
 
     @patch('api.hf_client.HfApi')
-    @patch('api.hf_client.os.getenv')
-    def test_hf_client_api_initialization_failure(self, mock_getenv, mock_hf_api):
+    def test_hf_client_api_initialization_failure(self, mock_hf_api):
         """Test HF client handling of API initialization failures."""
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
         from api.hf_client import HFClient
-
-        # Mock environment variables
-        mock_getenv.return_value = "test-token"
 
         mock_hf_api.side_effect = Exception("API initialization failed")
 

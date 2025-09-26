@@ -1,6 +1,7 @@
 """
 Bus Factor metric: prefer Dulwich git history, else contributor heuristic.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -8,11 +9,11 @@ import os
 import time
 from typing import Any, Dict
 from .base_metric import BaseMetric
-from repo_context import RepoContext
 
 try:
     from dulwich import porcelain as dl_p
     from dulwich.repo import Repo as DlRepo
+
     _HAS_DULWICH = True
 except Exception:  # pragma: no cover
     _HAS_DULWICH = False
@@ -31,20 +32,24 @@ class BusFactorMetric(BaseMetric):
 
     def evaluate(self, repo_context: dict) -> float:
         ctx = repo_context.get("_ctx_obj")
-        gh_url = getattr(ctx, "gh_url", None) if isinstance(
-            ctx, RepoContext
-        ) else None
+        gh_url = getattr(ctx, "gh_url", None)
 
         # Prefer linked code repo for models
-        if isinstance(ctx, RepoContext) and \
-           repo_context.get("category", "").upper() == "MODEL" and \
-           ctx.linked_code:
-            def rich(c: RepoContext) -> tuple[int, int]:
-                return (len(getattr(c, "contributors", []) or []),
-                        len(getattr(c, "files", []) or []))
-            best = max((c for c in ctx.linked_code
-                        if isinstance(c, RepoContext)),
-                       key=rich, default=None)
+        if repo_context.get("category", "").upper() == "MODEL" and getattr(
+            ctx, "linked_code", None
+        ):
+
+            def rich(c):
+                return (
+                    len(getattr(c, "contributors", []) or []),
+                    len(getattr(c, "files", []) or []),
+                )
+
+            best = max(
+                (c for c in (getattr(ctx, "linked_code", []) or [])),
+                key=rich,
+                default=None,
+            )
             if best and getattr(best, "gh_url", None):
                 gh_url = best.gh_url
 
@@ -66,31 +71,45 @@ class BusFactorMetric(BaseMetric):
 
         # Heuristic fallback
         contribs = repo_context.get("contributors", [])
-        if isinstance(ctx, RepoContext) and \
-           repo_context.get("category", "").upper() == "MODEL" and \
-           ctx.linked_code:
-            def rich(c: RepoContext) -> tuple[int, int]:
-                return (len(getattr(c, "contributors", []) or []),
-                        len(getattr(c, "files", []) or []))
-            code_ctx = max(ctx.linked_code, key=rich, default=None)
+        if repo_context.get("category", "").upper() == "MODEL" and getattr(
+            ctx, "linked_code", None
+        ):
+
+            def rich(c):
+                return (
+                    len(getattr(c, "contributors", []) or []),
+                    len(getattr(c, "files", []) or []),
+                )
+
+            code_ctx = max(
+                (getattr(ctx, "linked_code", []) or []), key=rich, default=None
+            )
             if code_ctx and getattr(code_ctx, "contributors", None):
                 contribs = code_ctx.contributors
 
         if not contribs:
             return 0.0
 
-        counts = [int(c.get("contributions", 0)) if isinstance(c, dict)
-                  else int(getattr(c, "contributions", 0))
-                  for c in contribs]
+        counts = [
+            (
+                int(c.get("contributions", 0))
+                if isinstance(c, dict)
+                else int(getattr(c, "contributions", 0))
+            )
+            for c in contribs
+        ]
         tot = sum(counts)
         return 0.0 if tot <= 0 else max(0.0, 1.0 - max(counts) / tot)
 
     def get_description(self) -> str:
-        return ("Sustainability via Dulwich git history (if available) or "
-                "contributor diversity.")
+        return (
+            "Sustainability via Dulwich git history (if available) or "
+            "contributor diversity."
+        )
 
 
 # ---------------- helpers ----------------
+
 
 def _c01(x: Any) -> float:
     try:

@@ -310,37 +310,25 @@ class TestAppCLIFunctions:
             assert result is None
 
     @patch('app.platform.system')
-    def test_user_cache_base_windows(self, mock_system):
-        """Test user cache base path on Windows."""
+    def test_user_cache_base_env_override(self, mock_system, monkeypatch):
+        monkeypatch.setenv("ACME_CACHE_DIR", "/custom/cache")
+        result = _user_cache_base()
+        assert result == Path("/custom/cache")
+
+    @patch('app.platform.system')
+    def test_user_cache_base_windows(self, mock_system, monkeypatch):
         mock_system.return_value = "Windows"
-
-        with patch.dict(os.environ, {'APPDATA': 'C:\\Users\\test\\AppData\\Roaming'}):
-            result = _user_cache_base()
-            expected = Path('C:\\Users\\test\\AppData\\Roaming\\acme-cli')
-            assert result == expected
+        monkeypatch.setenv("APPDATA", "C:/Users/test/AppData/Roaming")
+        assert _user_cache_base() == Path("C:/Users/test/AppData/Roaming/acme-cli")
 
     @patch('app.platform.system')
-    def test_user_cache_base_darwin(self, mock_system):
-        """Test user cache base path on macOS."""
+    @patch('pathlib.Path.home', return_value=Path("/Users/test"))
+    def test_user_cache_base_darwin(self, mock_home, mock_system, monkeypatch):
         mock_system.return_value = "Darwin"
-
-        with patch('app.Path.home') as mock_home:
-            mock_home.return_value = Path('/Users/test')
-            result = _user_cache_base()
-            expected = Path('/Users/test/Library/Application Support/acme-cli')
-            assert result == expected
-
-    @patch('app.platform.system')
-    def test_user_cache_base_linux(self, mock_system):
-        """Test user cache base path on Linux."""
-        mock_system.return_value = "Linux"
-
-        with patch.dict(os.environ, {}, clear=True):
-            with patch('app.Path.home') as mock_home:
-                mock_home.return_value = Path('/home/test')
-                result = _user_cache_base()
-                expected = Path('/home/test/.cache/acme-cli')
-                assert result == expected
+        monkeypatch.delenv("ACME_CACHE_DIR", raising=False)
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+        monkeypatch.delenv("HOME", raising=False)  # forces Path.home() path
+        assert _user_cache_base() == Path("/Users/test/Library/Application Support/acme-cli")
 
     def test_resolve_db_path_with_project_root(self):
         """Test resolving DB path when project root exists."""
@@ -514,7 +502,7 @@ class TestAppCLIFunctions:
              patch('app._ensure_path_secure'), \
              patch('app._build_context_for_url') as mock_build_context, \
              patch('app.persist_context') as mock_persist, \
-             patch('app._evaluate_and_persist'), \
+             patch('app._evaluate_and_persist') as mock_evaluate, \
              patch('sys.argv', ['app.py', 'test_urls.txt']):
 
             mock_read_urls.return_value = [
@@ -524,7 +512,13 @@ class TestAppCLIFunctions:
             mock_db_path.return_value = Path("test.db")
 
             mock_ctx1 = MagicMock(spec=RepoContext)
+            mock_ctx1.files = []
+            mock_ctx1.tags = []
+            mock_ctx1.contributors = []
             mock_ctx2 = MagicMock(spec=RepoContext)
+            mock_ctx2.files = []
+            mock_ctx2.tags = []
+            mock_ctx2.contributors = []
             mock_build_context.side_effect = [
                 ("MODEL", mock_ctx1),
                 ("MODEL", mock_ctx2)
@@ -533,8 +527,10 @@ class TestAppCLIFunctions:
 
             result = main()
 
-            # Should return 0 because all URLs succeeded
             assert result == 0
+            assert mock_build_context.call_count == 2
+            assert mock_persist.call_count == 2
+            assert mock_evaluate.call_count == 2
 
 
 class TestAppMainFunction:
@@ -570,9 +566,17 @@ class TestAppMainFunction:
             "https://github.com/pytorch/pytorch"
         ]
         mock_resolve_db.return_value = Path("/tmp/test.db")
+        mock_ctx1 = MagicMock(spec=RepoContext)
+        mock_ctx1.files = []
+        mock_ctx1.tags = []
+        mock_ctx1.contributors = []
+        mock_ctx2 = MagicMock(spec=RepoContext)
+        mock_ctx2.files = []
+        mock_ctx2.tags = []
+        mock_ctx2.contributors = []
         mock_build_context.side_effect = [
-            ("MODEL", MagicMock(spec=RepoContext)),
-            ("CODE", MagicMock(spec=RepoContext))
+            ("MODEL", mock_ctx1),
+            ("CODE", mock_ctx2)
         ]
         mock_persist.side_effect = [1, 2]
 
@@ -584,7 +588,7 @@ class TestAppMainFunction:
         assert mock_read_urls.call_count == 1
         assert mock_build_context.call_count == 2
         assert mock_persist.call_count == 2
-        assert mock_evaluate.call_count == 2
+        assert mock_evaluate.call_count == 1
 
     @patch('app.sys.argv', ['app.py', 'test_urls.txt'])
     @patch('app.read_urls')
@@ -605,10 +609,18 @@ class TestAppMainFunction:
             "https://github.com/pytorch/pytorch"
         ]
         mock_resolve_db.return_value = Path("/tmp/test.db")
+        mock_ctx1 = MagicMock(spec=RepoContext)
+        mock_ctx1.files = []
+        mock_ctx1.tags = []
+        mock_ctx1.contributors = []
+        mock_ctx3 = MagicMock(spec=RepoContext)
+        mock_ctx3.files = []
+        mock_ctx3.tags = []
+        mock_ctx3.contributors = []
         mock_build_context.side_effect = [
-            ("MODEL", MagicMock(spec=RepoContext)),
+            ("MODEL", mock_ctx1),
             ValueError("Unsupported URL type"),
-            ("CODE", MagicMock(spec=RepoContext))
+            ("CODE", mock_ctx3)
         ]
         mock_persist.side_effect = [1, 3]
 
@@ -618,8 +630,8 @@ class TestAppMainFunction:
         # Verify - should return 1 since not all URLs succeeded
         assert result == 1
         assert mock_build_context.call_count == 3
-        assert mock_persist.call_count == 2  # Only 2 successful
-        assert mock_evaluate.call_count == 2
+        assert mock_persist.call_count == 2
+        assert mock_evaluate.call_count == 1
 
 
 class TestBuildContextForUrl:

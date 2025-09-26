@@ -133,13 +133,16 @@ def _emit_ndjson(
     if ctx.hf_id:
         name = ctx.hf_id.split("/")[-1]
     elif ctx.url:
-        name = (ctx.url.rstrip("/").split("/")[-1] or ctx.url)
+        name = ctx.url.rstrip("/").split("/")[-1] or ctx.url
     else:
         name = "unknown"
 
     # Convenience getters
-    def get(k, d=0.0): return float(per_metric.get(k, d))
-    def lat(k): return int(per_metric_lat_ms.get(k, 0))
+    def get(k, d=0.0):
+        return float(per_metric.get(k, d))
+
+    def lat(k):
+        return int(per_metric_lat_ms.get(k, 0))
 
     size = get("Size", 0.0)
     size_score = {
@@ -158,29 +161,22 @@ def _emit_ndjson(
         "category": category,
         "net_score": round(float(net), 2),
         "net_score_latency": int(net_latency_ms),
-
         "ramp_up_time": round(get("RampUpTime"), 2),
         "ramp_up_time_latency": lat("RampUpTime"),
-
         "bus_factor": round(get("BusFactor"), 2),
         "bus_factor_latency": lat("BusFactor"),
-
         "performance_claims": round(get("PerformanceClaims"), 2),
         "performance_claims_latency": lat("PerformanceClaims"),
-
         "license": round(get("License"), 2),
         "license_latency": lat("License"),
-
         "size_score": size_score,
         "size_score_latency": lat("Size"),
-
         "dataset_and_code_score": ds_code,
         "dataset_and_code_score_latency": max(
             lat("DatasetAvailability"), lat("CodeQuality")
         ),
         "dataset_quality": round(get("DatasetQuality"), 2),
         "dataset_quality_latency": lat("DatasetQuality"),
-
         "code_quality": round(get("CodeQuality"), 2),
         "code_quality_latency": lat("CodeQuality"),
     }
@@ -190,7 +186,10 @@ def _emit_ndjson(
     logger.debug("metric_latencies_ms=%s", per_metric_lat_ms)
     logger.info(
         "NDJSON summary: name=%s category=%s net=%.2f (net_latency_ms=%d)",
-        name, category, nd["net_score"], nd["net_score_latency"]
+        name,
+        category,
+        nd["net_score"],
+        nd["net_score_latency"],
     )
     logger.debug("NDJSON payload=%s", nd)
 
