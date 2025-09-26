@@ -138,10 +138,24 @@ class GHClient:
         token = os.getenv("GITHUB_TOKEN")
         if not token or not self._is_token_valid(token):
             logger.error(
-                "GHClient initialization failed: GITHUB_TOKEN is missing or invalid."
+                "GHClient initialization failed: GITHUB_TOKEN is missing or invalid format."
             )
             sys.exit(1)
         self._http = _make_session(token)
+        # Check token validity by making a call to GitHub API
+        try:
+            resp = self._http.get("https://api.github.com/user")
+            if resp.status_code != 200:
+                logger.error(
+                    "GHClient initialization failed: GITHUB_TOKEN is not valid (status=%d).",
+                    resp.status_code,
+                )
+                sys.exit(1)
+        except Exception as e:
+            logger.error(
+                "GHClient initialization failed: Exception during token check: %s", e
+            )
+            sys.exit(1)
         self._etag_cache: dict[str, str] = {}
         logger.debug(
             "GHClient initialized (token=%s)", "present" if token else "absent"
