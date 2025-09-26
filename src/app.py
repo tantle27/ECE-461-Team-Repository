@@ -78,10 +78,10 @@ def read_urls(arg: str) -> list[str]:
                 urls.extend(p for p in parts if p)
             return urls
     except FileNotFoundError:
-        print(f"Error: File '{arg}' not found.", file=sys.stderr)
+        # print(f"Error: File '{arg}' not found.", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Error reading file '{arg}': {e}", file=sys.stderr)
+        # print(f"Error reading file '{arg}': {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -242,8 +242,8 @@ def _evaluate_and_persist(
         url=(ctx.hf_id or ctx.gh_url or ctx.url or ""),
         latencies={"NetScore": 0, **zero_latencies},
     )
-    print(ns.to_ndjson_string())
-    print(str(ns))
+    # print(ns.to_ndjson_string())
+    # print(str(ns))
 
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
@@ -471,7 +471,7 @@ def persist_context(
 
 def main() -> int:
     if len(sys.argv) != 2:
-        print("usage: ./run <URL_FILE>", file=sys.stderr)
+        # print("usage: ./run <URL_FILE>", file=sys.stderr)
         return 1
 
     url_file = sys.argv[1]
@@ -500,7 +500,7 @@ def main() -> int:
             logger.info("context summary: %s", _ctx_summary(ctx))
 
             rid = persist_context(db_path, ctx, category)
-            print(f"[OK] {category:<7} saved id={rid} url={url}")
+            # print(f"[OK] {category:<7} saved id={rid} url={url}")
             logger.info(
                 "persist ok: id=%s category=%s url=%s", rid, category, url
             )
@@ -510,7 +510,7 @@ def main() -> int:
                 _evaluate_and_persist(db_path, rid, category, ctx)
 
         except Exception as e:
-            print(f"[ERR] url={url} error={e}", file=sys.stderr)
+            # print(f"[ERR] url={url} error={e}", file=sys.stderr)
             logger.error(
                 "pipeline error: url=%s err=%s", url, e, exc_info=True
             )
@@ -522,7 +522,7 @@ def main() -> int:
         total,
         "OK" if failures == 0 else "PARTIAL",
     )
-    print(0 if failures == 0 else 1)
+    # print(0 if failures == 0 else 1)
     return 0 if failures == 0 else 1
 
 

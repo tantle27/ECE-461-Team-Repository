@@ -17,7 +17,7 @@ class MetricEval:
             try:
                 return (metric.name, metric.evaluate(repo_cxt))
             except Exception as e:
-                print(f"Error evaluating {metric.name}: {e}")
+                # print(f"Error evaluating {metric.name}: {e}")
                 return (metric.name, -1)
 
         with ThreadPoolExecutor() as executor:
@@ -77,7 +77,7 @@ def init_metrics() -> List[BaseMetric]:
             out.append(m)
         except Exception as e:
             # Don't crash the app; just skip the broken metric
-            print(f"[WARN] skipping metric {expected_name}: {e}")
+            # print(f"[WARN] skipping metric {expected_name}: {e}")
     return out
 
 
