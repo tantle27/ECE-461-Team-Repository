@@ -138,7 +138,7 @@ class TestErrorHandling:
                 error_msg = f"Required file not found: {missing_file_path}"
                 self.logger.error(error_msg)
                 # Write to stderr
-                print(error_msg, file=sys.stderr)
+                # print(error_msg, file=sys.stderr)
                 # In real code, this would call sys.exit(1)
                 raise SystemExit(1)
 
@@ -175,13 +175,13 @@ class TestErrorHandling:
                     if not os.path.exists(file_path):
                         error_msg = f"Required file not found: {file_path}"
                         self.logger.error(error_msg)
-                        print(error_msg, file=sys.stderr)
+                        # print(error_msg, file=sys.stderr)
                         raise SystemExit(1)
                     else:
                         # If file exists, still simulate the error for testing
                         error_msg = f"Required file not found: {file_path}"
                         self.logger.error(error_msg)
-                        print(error_msg, file=sys.stderr)
+                        # print(error_msg, file=sys.stderr)
                         raise SystemExit(1)
 
                 # Verify stderr contains file path
@@ -216,7 +216,7 @@ class TestErrorHandling:
             except PermissionError as e:
                 error_msg = f"Access denied to file: {e}"
                 self.logger.error(error_msg)
-                print(error_msg, file=sys.stderr)
+                # print(error_msg, file=sys.stderr)
                 raise SystemExit(1)
 
         with patch('sys.stderr', new_callable=StringIO) as mock_stderr:

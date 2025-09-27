@@ -270,8 +270,8 @@ def _evaluate_and_persist(
         conn.commit()
     finally:
         conn.close()
-
-    _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
+    if category == "MODEL":
+        _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
 
     logging.info("eval done: id=%s metrics=%d", rid, len(scores))
 
