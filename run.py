@@ -26,7 +26,7 @@ def main():
     else:
         print("Could not parse test results.")
         print(output)
-        sys.exit(2)
+        sys.exit(1)
 
     # Parse coverage percentage from the summary table
     cov_match = re.search(r'TOTAL\s+\d+\s+\d+\s+(\d+)%', output)

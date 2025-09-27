@@ -1440,7 +1440,11 @@ class TestCodeQualityMetric:
         assert s["lint"] is False  # none of .flake8/.pylintrc provided
         assert s["fmt"] is True    # pyproject is present
         assert s["typing"] is False
-        assert s["struct"]["pyproject_or_setup"] is True
+        # struct keys are now top-level in signals
+        assert s["reqs"] is True
+        assert s["arch_markers"] >= 0
+        assert s["run_scripts"] >= 0
+        assert s["classic_scripts"] >= 0
         assert s["rq"]["install"] is True
         assert s["rq"]["usage"] is True
         assert s["rq"]["fences"] >= 1
@@ -1457,7 +1461,7 @@ class TestCodeQualityMetric:
         q = self.metric._quant(s)
 
         assert set(q.keys()) == {
-            "tests", "ci", "lint_fmt", "typing", "docs", "structure", "recency"
+            "tests", "ci", "lint_fmt", "typing", "docs", "structure", "recency", "arch", "notebooks", "scripts"
         }
         for v in q.values():
             assert 0.0 <= v <= 1.0

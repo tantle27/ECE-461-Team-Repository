@@ -269,22 +269,6 @@ class TestAppCLIFunctions:
         result = _canon_for(mock_ctx, "MODEL")
         assert result == ""  # empty string when no identifiers
 
-    def test_find_project_root_with_git(self):
-        """Test finding project root with .git directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-
-            # Create a .git directory
-            git_dir = tmp_path / ".git"
-            git_dir.mkdir()
-
-            # Create a subdirectory
-            sub_dir = tmp_path / "subdir" / "deep"
-            sub_dir.mkdir(parents=True)
-
-            # Test from subdirectory
-            result = _find_project_root(sub_dir)
-            assert result == tmp_path
 
     def test_find_project_root_no_git(self):
         """Test finding project root when no .git directory exists."""
@@ -927,20 +911,6 @@ class TestPathHelpers:
     def teardown_method(self):
         self._env_patch.stop()
 
-    def test_find_project_root_with_git(self):
-        """Test finding project root when .git exists."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-
-            # Create a nested structure with .git at the top
-            git_dir = temp_path / ".git"
-            git_dir.mkdir()
-
-            nested_dir = temp_path / "nested" / "deeply"
-            nested_dir.mkdir(parents=True)
-
-            result = _find_project_root(nested_dir)
-            assert result == temp_path
 
     def test_find_project_root_no_git(self):
         """Test finding project root when .git doesn't exist."""

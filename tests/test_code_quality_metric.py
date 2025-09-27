@@ -49,6 +49,15 @@ def test_code_quality_quant_pytest_cfg_and_typing():
         "typing": True,
         "struct": {"pyproject_or_setup": False, "src_layout": False, "manifest": False, "reqs": False},
         "rq": {"len": 0, "install": False, "usage": False, "badges": False, "fences": 0},
+        "arch_markers": 0,
+        "notebook_count": 0,
+        "script_count": 0,
+        "reqs": False,
+        "run_scripts": 0,
+    "classic_scripts": 0,
+    "notebooks": 0,
+    "contrib": False,
+    "license_file": False,
     }
     q = m._quant(s)
     assert q["tests"] > 0
@@ -58,11 +67,32 @@ def test_code_quality_weights_varied_cases():
     from src.metrics.code_quality_metric import CodeQualityMetric
     m = CodeQualityMetric()
     # Minimal repo
-    s1 = {"repo_size": 1, "test_file_count": 0, "test_has_dir": False, "pytest_cfg": False, "ci": False, "lint": False, "fmt": False, "typing": False, "struct": {"pyproject_or_setup": False, "src_layout": False, "manifest": False, "reqs": False}, "rq": {"len": 0, "install": False, "usage": False, "badges": False, "fences": 0}}
+    s1 = {
+        "repo_size": 1,
+        "test_file_count": 0,
+        "test_has_dir": False,
+        "pytest_cfg": False,
+        "ci": False,
+        "lint": False,
+        "fmt": False,
+        "typing": False,
+        "struct": {"pyproject_or_setup": False, "src_layout": False, "manifest": False, "reqs": False},
+        "rq": {"len": 0, "install": False, "usage": False, "badges": False, "fences": 0},
+        "arch_markers": 0,
+        "notebook_count": 0,
+        "script_count": 0,
+        "reqs": False,
+        "run_scripts": 0,
+    "classic_scripts": 0,
+    "notebooks": 0,
+    "contrib": False,
+    "license_file": False,
+    }
     w1 = m._weights(s1)
     assert abs(sum(w1.values()) - 1.0) < 1e-6
     # Large repo
-    s2 = dict(s1); s2["repo_size"] = 2000
+    s2 = dict(s1)
+    s2["repo_size"] = 2000
     w2 = m._weights(s2)
     assert abs(sum(w2.values()) - 1.0) < 1e-6
 
@@ -109,7 +139,7 @@ def test_code_quality_signals_and_quant():
     readme = "Install: pip install x\nUsage: example\n```python\nprint('x')\n```"
     s = m._signals(readme, files)
     q = m._quant(s)
-    assert set(q.keys()) == {"tests", "ci", "lint_fmt", "typing", "docs", "structure", "recency"}
+    assert set(q.keys()) == {"tests", "ci", "lint_fmt", "typing", "docs", "structure", "recency", "arch", "notebooks", "scripts"}
     for v in q.values():
         assert 0.0 <= v <= 1.0
 
@@ -173,6 +203,15 @@ def test_code_quality_coverage_and_variance():
         "typing": True,
         "struct": {"pyproject_or_setup": True, "src_layout": True, "manifest": True, "reqs": True},
         "rq": {"len": 500, "install": True, "usage": True, "badges": True, "fences": 3},
+        "arch_markers": 2,
+        "notebook_count": 1,
+        "script_count": 1,
+        "reqs": True,
+        "run_scripts": 1,
+    "classic_scripts": 1,
+    "notebooks": 0,
+    "contrib": False,
+    "license_file": False,
     }
     q = m._quant(s)
     cov = m._coverage(s)

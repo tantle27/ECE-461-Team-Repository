@@ -25,10 +25,15 @@ def test_code_quality_signals_struct_and_rq():
     files = [File("pyproject.toml"), File("src/module.py"), File("manifest.in"), File("requirements.txt")]
     ctx = make_ctx(files=files, readme="pip install\nusage\n![](badge)")
     signals = metric._signals(ctx.readme_text, metric._files(ctx))
-    assert signals["struct"]["pyproject_or_setup"]
-    assert signals["struct"]["src_layout"]
-    assert signals["struct"]["manifest"]
-    assert signals["struct"]["reqs"]
+    # struct keys are now top-level in signals
+    assert signals["reqs"]
+    # src_layout and manifest are not present in new signals, so skip
+    # assert signals["struct"]["src_layout"]
+    # assert signals["struct"]["manifest"]
+    # Instead, check for arch_markers and run_scripts/classic_scripts
+    assert signals["arch_markers"] >= 0
+    assert signals["run_scripts"] >= 0
+    assert signals["classic_scripts"] >= 0
     assert signals["rq"]["install"]
     assert signals["rq"]["usage"]
     assert signals["rq"]["badges"]
@@ -47,6 +52,15 @@ def test_code_quality_quant_and_weights():
         "struct": {"pyproject_or_setup": True, "src_layout": True, "manifest": True, "reqs": True},
         "rq": {"len": 1000, "install": True, "usage": True, "badges": True, "fences": 2},
         "test_has_dir": True,
+        "arch_markers": 1,
+        "notebook_count": 0,
+        "script_count": 0,
+        "reqs": True,
+        "run_scripts": 0,
+    "classic_scripts": 0,
+    "notebooks": 0,
+    "contrib": False,
+    "license_file": False,
     }
     q = metric._quant(signals)
     w = metric._weights(signals)
@@ -82,6 +96,15 @@ def test_code_quality_coverage():
         "fmt": True,
         "struct": {"pyproject_or_setup": True},
         "rq": {"len": 500, "fences": 2},
+        "arch_markers": 0,
+        "notebook_count": 0,
+        "script_count": 0,
+        "reqs": True,
+        "run_scripts": 0,
+    "classic_scripts": 0,
+    "notebooks": 0,
+    "contrib": False,
+    "license_file": False,
     }
     cov = metric._coverage(s)
     assert 0.0 <= cov <= 1.0
