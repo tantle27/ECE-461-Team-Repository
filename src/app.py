@@ -101,7 +101,7 @@ def _require_valid_github_token() -> str:
     We can't check server-side validity here, but we can reject obviously bad values.
     Exits(1) on failure.
     """
-    tok = os.getenv("GITHUB_TOKEN", "")
+    tok = os.environ.get("GITHUB_TOKEN", "")
     if not tok:
         # print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
