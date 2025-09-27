@@ -10,8 +10,6 @@ from typing import Dict, Optional
 from repo_context import RepoContext
 import logging
 
-logger = logging.getLogger("acme-cli.net_scorer")
-
 
 class NetScorer:
     """
@@ -183,15 +181,15 @@ def _emit_ndjson(
 
     # ---- Logging (file) ----
     # Debug detail: raw latencies + full NDJSON payload
-    logger.debug("metric_latencies_ms=%s", per_metric_lat_ms)
-    logger.info(
+    logging.debug("metric_latencies_ms=%s", per_metric_lat_ms)
+    logging.info(
         "NDJSON summary: name=%s category=%s net=%.2f (net_latency_ms=%d)",
         name,
         category,
         nd["net_score"],
         nd["net_score_latency"],
     )
-    logger.debug("NDJSON payload=%s", nd)
+    logging.debug("NDJSON payload=%s", nd)
 
     # ---- Emission (stdout) ----
-    # print(json.dumps(nd, separators=(",", ":")))
+    print(json.dumps(nd, separators=(",", ":")))
