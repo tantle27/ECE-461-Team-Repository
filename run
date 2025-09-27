@@ -14,8 +14,6 @@ if [ "$1" = "install" ]; then
   exit 0
 elif [ "$1" = "test" ]; then
   python run.py
-  exit $?
 else
   python3 src/app.py "$1"
-  exit 0
 fi
