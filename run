@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 usage() {
   echo "Usage: $0 {install|test|URL_FILE}"
@@ -8,11 +7,13 @@ usage() {
   echo "  URL_FILE  Absolute or relative path to a file with newline-delimited URLs"
 }
 
+# if no arguments or more than one argument is provided, show usage and exit
 if [ "$#" -ne 1 ]; then
   usage
   exit 1
 fi
 
+# exit $? in each case so the python exit code is propagated
 case "$1" in
   install)
     pip install -r requirements.txt
@@ -23,12 +24,7 @@ case "$1" in
     exit $?
     ;;
   *)
-    url_file="$1"
-    if [[ ! -f "$url_file" ]]; then
-      echo "ERROR: URL file '$url_file' not found." >&2
-      exit 1
-    fi
-    python3 -u src/app.py "$url_file"
+    python3 -u src/app.py "$1"
     exit $? 
     ;;
 esac
