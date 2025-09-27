@@ -276,3 +276,74 @@ class GHClient:
         except ValueError as e:
             logging.warning("Failed to parse JSON from %s: %s", url, e)
             return None
+    
+    def _get_branch_sha(self, owner: str, repo: str, branch: str) -> Optional[str]:
+        """Resolve a branch name to a commit SHA."""
+        data = self._get_json(f"/repos/{owner}/{repo}/branches/{branch}")
+        if isinstance(data, dict):
+            commit = data.get("commit") or {}
+            sha = commit.get("sha")
+            if isinstance(sha, str) and sha:
+                return sha
+        return None
+
+    def get_repo_tree(
+        self,
+        owner: str,
+        repo: str,
+        branch: Optional[str] = None,
+        *,
+        recursive: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return a list of tree entries with keys: path, type ('blob'/'tree'), size (for blobs).
+        Uses /git/trees/{sha}?recursive=1. If branch is None, uses the repo's default branch.
+        """
+        # Determine branch
+        br = branch
+        if not br:
+            info = self.get_repo(owner, repo)
+            br = info.default_branch if info and info.default_branch else "main"
+
+        sha = self._get_branch_sha(owner, repo, br)
+        if not sha:
+            logging.warning(
+                "get_repo_tree: could not resolve branch sha for %s/%s@%s", owner, repo, br)
+            return []
+
+        path = f"/repos/{owner}/{repo}/git/trees/{sha}"
+        if recursive:
+            path += "?recursive=1"
+
+        data = self._get_json(path)
+        if not isinstance(data, dict):
+            return []
+
+        entries = data.get("tree")
+        out: List[Dict[str, Any]] = []
+        if isinstance(entries, list):
+            for n in entries:
+                if not isinstance(n, dict):
+                    continue
+                typ = n.get("type")
+                pth = n.get("path")
+                if not isinstance(pth, str):
+                    continue
+                item = {"path": pth, "type": typ}
+                if typ == "blob":
+                    sz = n.get("size")
+                    if isinstance(sz, int):
+                        item["size"] = sz
+                out.append(item)
+        return out
+
+    # Optional alias to match your handlers' alternate call:
+    def list_tree(
+        self,
+        owner: str,
+        repo: str,
+        branch: Optional[str] = None,
+        *,
+        recursive: bool = True,
+    ) -> List[Dict[str, Any]]:
+        return self.get_repo_tree(owner, repo, branch, recursive=recursive)

@@ -19,7 +19,18 @@ def _removeprefix(s: str, prefix: str) -> str:
     return s[len(prefix):] if s.startswith(prefix) else s
 
 
+_WEIGHT_EXTS = {
+    "safetensors", "bin", "pt", "pth", "h5", "onnx", "tflite", "gguf", "ggml", "ckpt"
+}
+
+
+def _ext_of(path: str) -> str:
+    p = path.rsplit("/", 1)[-1]
+    if "." in p:
+        return p.rsplit(".", 1)[-1].lower()
+    return ""
 # ---------------- HTTP plumbing ----------------
+
 
 class _TimeoutHTTPAdapter(HTTPAdapter):
     def __init__(self, *args, timeout: int = 30, **kwargs):
@@ -275,29 +286,57 @@ class HFClient:
         return out
 
     def list_files(self, hf_id: str, *, repo_type: str = "model") -> List[HFFileInfo]:
-        files: List[str]
-        try:
-            files = self.api.list_repo_files(
-                hf_id, repo_type=repo_type) if self.api else []
-        except Exception:
-            files = []
-        out: List[HFFileInfo] = []
-        if files:
-            sizes: Dict[str, Optional[int]] = {}
-            try:
-                infos = self.api.get_paths_info(hf_id, paths=files, repo_type=repo_type)
-                for info in infos or []:
-                    p = getattr(info, "path", None)
-                    sz = getattr(info, "size", None)
-                    if isinstance(p, str):
-                        sizes[p] = sz if isinstance(sz, int) else None
-            except Exception:
-                sizes = {}
-            for f in files:
-                out.append(HFFileInfo(path=f, size=sizes.get(f)))
-        return out
+        # 1) siblings
+        if repo_type == "dataset":
+            obj = self._api_dataset_json(hf_id)
+            base_for_tree = f"datasets/{hf_id}"
+            html_base = f"datasets/{hf_id}"
+        else:
+            obj = self._api_model_json(hf_id)
+            base_for_tree = f"models/{hf_id}"
+            html_base = hf_id
 
-    def _parse_tree_html(self, base_path: str, revision: str = "main") -> List[HFFileInfo]:
+        files = self._extract_files_from_api_obj(obj or {})
+        if files:
+            return self._fill_missing_sizes(hf_id, files, repo_type=repo_type, revision="main")
+
+        # 2) tree
+        tree = self._api_tree_json(base_for_tree, revision="main")
+        if tree:
+            out: List[HFFileInfo] = []
+            for node in tree:
+                if node.get("type") == "file" and isinstance(node.get("path"), str):
+                    out.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
+            if out:
+                return self._fill_missing_sizes(hf_id, out, repo_type=repo_type, revision="main")
+
+        # 3) huggingface_hub
+        out: List[HFFileInfo] = []
+        if self.api:
+            try:
+                names = self.api.list_repo_files(hf_id, repo_type=repo_type)
+                sizes: Dict[str, Optional[int]] = {}
+                try:
+                    infos = self.api.get_paths_info(hf_id, paths=names, repo_type=repo_type)
+                    for info in infos or []:
+                        p = getattr(info, "path", None)
+                        sz = getattr(info, "size", None)
+                        if isinstance(p, str):
+                            sizes[p] = sz if isinstance(sz, int) else None
+                except Exception:
+                    sizes = {}
+                out = [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+                if out:
+                    return self._fill_missing_sizes(
+                        hf_id, out, repo_type=repo_type, revision="main")
+            except Exception:
+                pass
+
+        # 4) HTML
+        return self._parse_tree_html(html_base, revision="main")
+
+    def _parse_tree_html(
+            self, base_path: str, revision: str = "main") -> List[HFFileInfo]:
         url = f"https://huggingface.co/{base_path}/tree/{revision}"
         html = _text_get(self._session, url)
         if not html:
@@ -312,7 +351,8 @@ class HFClient:
         obj = self._api_model_json(hf_id)
         files = self._extract_files_from_api_obj(obj or {})
         if files:
-            return files
+            return self._fill_missing_sizes(hf_id, files, repo_type="model", revision=revision)
+
         tree = self._api_tree_json(f"models/{hf_id}", revision=revision)
         if tree:
             out: List[HFFileInfo] = []
@@ -320,7 +360,8 @@ class HFClient:
                 if node.get("type") == "file" and isinstance(node.get("path"), str):
                     out.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
             if out:
-                return out
+                return self._fill_missing_sizes(hf_id, out, repo_type="model", revision=revision)
+
         if self.api:
             try:
                 names = self.api.list_repo_files(hf_id, repo_type="model")
@@ -334,16 +375,81 @@ class HFClient:
                             sizes[p] = sz if isinstance(sz, int) else None
                 except Exception:
                     sizes = {}
-                return [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+                out = [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+                if out:
+                    return self._fill_missing_sizes(
+                        hf_id, out, repo_type="model", revision=revision)
             except Exception:
                 pass
-        return self._parse_tree_html(hf_id, revision=revision)
 
+        return self._parse_tree_html(hf_id, revision=revision)
+    
+    def _resolve_url(
+            self, hf_id: str, path: str, *,
+            revision: str = "main", repo_type: str = "model") -> str:
+        base = f"datasets/{hf_id}" if repo_type == "dataset" else hf_id
+        return f"https://huggingface.co/{base}/resolve/{revision}/{path}"
+
+    # HEAD request to get content-length
+    def _head_size(self, url: str) -> Optional[int]:
+        try:
+            r = _retry(lambda: self._session.head(url, allow_redirects=True))
+            if r.status_code == 200:
+                cl = r.headers.get("Content-Length")
+                if cl is not None:
+                    try:
+                        return int(cl)
+                    except ValueError:
+                        return None
+        except Exception:
+            return None
+        return None
+
+    # Fill in missing sizes for likely-weight files
+    def _fill_missing_sizes(
+        self,
+        hf_id: str,
+        files: List["HFFileInfo"],
+        *,
+        repo_type: str = "model",
+        revision: str = "main",
+        only_weight_exts: bool = True,
+        max_heads: int = 40,
+    ) -> List["HFFileInfo"]:
+        if not files:
+            return files
+
+        filled = 0
+        out: List[HFFileInfo] = []
+        for f in files:
+            if f.size is not None:
+                out.append(f)
+                continue
+
+            ext = _ext_of(f.path)
+            if only_weight_exts and ext not in _WEIGHT_EXTS:
+                out.append(f)  # leave as None
+                continue
+
+            if filled >= max_heads:
+                out.append(f)
+                continue
+
+            url = self._resolve_url(hf_id, f.path, revision=revision, repo_type=repo_type)
+            sz = self._head_size(url)
+            if sz is not None:
+                out.append(HFFileInfo(path=f.path, size=sz))
+                filled += 1
+            else:
+                out.append(f)
+        return out
+    
     def list_dataset_files(self, hf_id: str, *, revision: str = "main") -> List[HFFileInfo]:
         obj = self._api_dataset_json(hf_id)
         files = self._extract_files_from_api_obj(obj or {})
         if files:
-            return files
+            return self._fill_missing_sizes(hf_id, files, repo_type="dataset", revision=revision)
+
         tree = self._api_tree_json(f"datasets/{hf_id}", revision=revision)
         if tree:
             out2: List[HFFileInfo] = []
@@ -351,7 +457,8 @@ class HFClient:
                 if node.get("type") == "file" and isinstance(node.get("path"), str):
                     out2.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
             if out2:
-                return out2
+                return self._fill_missing_sizes(hf_id, out2, repo_type="dataset", revision=revision)
+
         if self.api:
             try:
                 names = self.api.list_repo_files(hf_id, repo_type="dataset")
@@ -365,9 +472,13 @@ class HFClient:
                             sizes[p] = sz if isinstance(sz, int) else None
                 except Exception:
                     sizes = {}
-                return [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+                out = [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
+                if out:
+                    return self._fill_missing_sizes(
+                        hf_id, out, repo_type="dataset", revision=revision)
             except Exception:
                 pass
+
         return self._parse_tree_html(f"datasets/{hf_id}", revision=revision)
 
     # ---- README (raw) ----
@@ -535,13 +646,3 @@ class HFClient:
             if data and isinstance(data.get("cardData"), dict):
                 card_data = data["cardData"]
         return GitHubMatcher.extract_urls(hf_id, readme, card_data)
-
-
-# Back-compat shim
-def github_urls_from_readme(
-    hf_id: str,
-    readme: str,
-    *,
-    card_data: Optional[Dict[str, Any]] = None
-) -> List[str]:
-    return GitHubMatcher.extract_urls(hf_id, readme, card_data)

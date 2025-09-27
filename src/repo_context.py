@@ -4,10 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Iterable, Optional, List, Dict
 
-from api.gh_client import normalize_and_verify_github
-from api.hf_client import github_urls_from_readme
 from url_router import UrlRouter, UrlType
-import re
 
 
 @dataclass(frozen=True)
@@ -144,127 +141,52 @@ class RepoContext:
             sfx = p.suffix
             ext = sfx[1:].lower() if sfx.startswith(".") else sfx.lower()
             self.files.append(FileInfo(path=p, size_bytes=0, ext=ext))
-
-    def link_dataset(self, ds_ctx: "RepoContext") -> None:
-        """Associate a dataset context to this context (usually a model)."""
-        key = self._canon_dataset_key(ds_ctx)
-        if not key:
-            return
-        if any(self._canon_dataset_key(c) == key for c in self.linked_datasets):
-            return
-        self.linked_datasets.append(ds_ctx)
+    
+    @staticmethod
+    def _source_rank(src: str) -> int:
+        return {"explicit": 3, "readme": 2, "card": 1}.get((src or "").lower(), 0)
 
     def link_code(self, code_ctx: "RepoContext") -> None:
-        """Associate a code repo context to this context (usually a model)."""
         key = self._canon_code_key(code_ctx)
         if not key:
             return
-        if any(self._canon_code_key(c) == key for c in self.linked_code):
-            return
+        new_src = getattr(code_ctx, "_link_source", None) or ""
+        for i, cur in enumerate(self.linked_code):
+            if self._canon_code_key(cur) == key:
+                old_src = getattr(cur, "_link_source", None) or ""
+                if self._source_rank(new_src) > self._source_rank(old_src):  # Fixed here
+                    self.linked_code[i] = code_ctx  # upgrade
+                    print(f"Upgraded linked code for {key} from {old_src} to {new_src}")
+                else:
+                    # merge minimal useful fields if old was a stub
+                    if not getattr(
+                            cur, "readme_text", None) and getattr(
+                                code_ctx, "readme_text", None):
+                        cur.readme_text = code_ctx.readme_text
+                    if not getattr(cur, "files", None) and getattr(code_ctx, "files", None):
+                        cur.files = code_ctx.files
+                    if new_src and not old_src:
+                        cur.__dict__["_link_source"] = new_src
+                return
         self.linked_code.append(code_ctx)
 
-    def hydrate_code_links(self, hf_client, gh_client) -> None:
-        """Fill in gh_url/link_code from HF README/card hints."""
-        if self.gh_url:
+    def link_dataset(self, ds_ctx: "RepoContext") -> None:
+        key = self._canon_dataset_key(ds_ctx)
+        if not key:
             return
-        url = find_code_repo_url(hf_client, gh_client, self, prefer_readme=True)
-        if not url:
-            return
-        self.gh_url = url
-        self.link_code(RepoContext(url=url, gh_url=url, host="github.com"))
-
-
-def find_code_repo_url(
-    hf_client, gh_client, ctx: RepoContext, *, prefer_readme: bool = True
-) -> Optional[str]:
-    candidates: List[str] = []
-    if ctx.readme_text and ctx.hf_id:
-        candidates.extend(
-            github_urls_from_readme(
-                ctx.hf_id, ctx.readme_text, card_data=ctx.card_data
-            )
-        )
-
-    if not candidates and ctx.hf_id:
-        p = ctx.hf_id.replace("datasets/", "")
-        if "/" in p:
-            org, name = p.split("/", 1)
-            guess = f"https://github.com/{org}/{_norm(name)}".replace("--", "-")
-            candidates.append(guess)
-
-    verified = normalize_and_verify_github(gh_client, candidates)
-    if not verified:
-        return None
-
-    # prefer README-derived one
-    if prefer_readme and ctx.readme_text and ctx.hf_id:
-        for u in github_urls_from_readme(
-            ctx.hf_id, ctx.readme_text, card_data=ctx.card_data
-        ):
-            if u in verified:
-                return u
-
-    # tie-break: prefer same owner + best version
-    p = ctx.hf_id.replace("datasets/", "") if ctx.hf_id else ""
-    hf_org = p.split("/", 1)[0].lower() if "/" in p else p.lower()
-
-    def ver_score(u: str) -> float:
-        repo = u.rsplit("/", 1)[-1]
-        return _ver_bonus(ctx.hf_id, repo)
-
-    same_owner = [u for u in verified if f"/{hf_org}/" in u.lower()] if hf_org else []
-    if same_owner:
-        same_owner.sort(key=ver_score, reverse=True)
-        return same_owner[0]
-
-    verified.sort(key=ver_score, reverse=True)
-    return verified[0]
-
-
-_VERSION_RE = re.compile(r"(?<![a-z0-9])v?(\d+(?:\.\d+)*)(?![a-z0-9])", re.I)
-
-
-def _norm(s: str) -> str:
-    """Normalize a name for GH repo guessing (lower + simple cleanup)."""
-    s = (s or "").lower()
-    for pre in ("hf-", "huggingface-", "the-"):
-        if s.startswith(pre):
-            s = s[len(pre):]
-    for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo", "-code"):
-        if s.endswith(suf):
-            s = s[: -len(suf)]
-    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
-    return s
-
-
-def _ver_bonus(hf_id: Optional[str], repo_name: Optional[str]) -> float:
-    """
-    Small score bonus based on version similarity between HF id and GH repo
-    name. Exact match → +0.30, off-by-one segment → +0.10, otherwise -0.20.
-    """
-
-    def parse_vers(txt: Optional[str]) -> List[tuple]:
-        if not txt:
-            return []
-        return [
-            tuple(int(x) for x in m.group(1).split("."))
-            for m in _VERSION_RE.finditer(txt)
-        ]
-
-    hv = parse_vers(hf_id)
-    rv = parse_vers(repo_name)
-    if not hv or not rv:
-        return 0.0
-
-    def dist(a: tuple, b: tuple) -> int:
-        n = max(len(a), len(b))
-        ap = a + (0,) * (n - len(a))
-        bp = b + (0,) * (n - len(b))
-        return sum(1 for i in range(n) if ap[i] != bp[i])
-
-    m = min(dist(a, b) for a in hv for b in rv)
-    if m == 0:
-        return 0.30
-    if m == 1:
-        return 0.10
-    return -0.20
+        new_src = getattr(ds_ctx, "_link_source", None) or ""
+        for i, cur in enumerate(self.linked_datasets):
+            if self._canon_dataset_key(cur) == key:
+                old_src = getattr(cur, "_link_source", None) or ""
+                if self._source_rank(new_src) > self._source_rank(old_src):  # Fixed here
+                    self.linked_datasets[i] = ds_ctx
+                else:
+                    if not getattr(
+                            cur, "readme_text", None) and getattr(ds_ctx, "readme_text", None):
+                        cur.readme_text = ds_ctx.readme_text
+                    if not getattr(cur, "files", None) and getattr(ds_ctx, "files", None):
+                        cur.files = ds_ctx.files
+                    if new_src and not old_src:
+                        cur.__dict__["_link_source"] = new_src
+                return
+        self.linked_datasets.append(ds_ctx)

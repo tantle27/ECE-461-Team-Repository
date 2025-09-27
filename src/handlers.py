@@ -30,6 +30,11 @@ def _safe_ext(path_str: str) -> str:
     return sfx[1:].lower() if sfx.startswith(".") else sfx.lower()
 
 
+def _strip_prefix(s: str, prefix: str) -> str:
+    """Compat replacement for str.removeprefix (<= py3.8)."""
+    return s[len(prefix):] if s.startswith(prefix) else s
+
+
 # ---------------- Base ----------------
 
 
@@ -73,9 +78,8 @@ class ModelUrlHandler(UrlHandler):
                 ctx.gated = info.gated
                 ctx.private = info.private
 
-                files = self.hf_client.list_files(
-                    parsed.hf_id, repo_type="model"
-                )
+                # IMPORTANT: use robust public-endpoint path
+                files = self.hf_client.list_model_files(parsed.hf_id)
                 ctx.files = [
                     FileInfo(
                         path=Path(fi.path),
@@ -89,41 +93,7 @@ class ModelUrlHandler(UrlHandler):
                 ctx.model_index = self.hf_client.get_model_index_json(
                     parsed.hf_id
                 )
-
-                # Linked code (GitHub)
-                try:
-                    ctx.hydrate_code_links(self.hf_client, self.gh_client)
-                    if ctx.gh_url:
-                        code_ctx = build_code_context(ctx.gh_url)
-                        ctx.link_code(code_ctx)
-                        if code_ctx.contributors:
-                            ctx.contributors = code_ctx.contributors
-                except Exception as e:
-                    ctx.api_errors += 1
-                    ctx.fetch_logs.append(f"Linked code hydrate failed: {e}")
-
-                # Linked datasets (HF)
-                try:
-                    ds_ids = set()
-                    ds_ids |= set(
-                        datasets_from_card(ctx.card_data or {}, ctx.tags or [])
-                    )
-                    ds_ids |= set(datasets_from_readme(ctx.readme_text or ""))
-                    for did in ds_ids:
-                        ds_url = f"https://huggingface.co/datasets/{did}"
-                        try:
-                            ds_ctx = build_dataset_context(ds_url)
-                            ctx.link_dataset(ds_ctx)
-                        except Exception as de:
-                            ctx.api_errors += 1
-                            ctx.fetch_logs.append(
-                                f"Dataset hydrate failed for {did}: {de}"
-                            )
-                except Exception as e:
-                    ctx.api_errors += 1
-                    ctx.fetch_logs.append(f"Dataset discovery error: {e}")
-
-                break  # success
+                break
 
             except FileNotFoundError as e:
                 ctx.api_errors += 1
@@ -171,6 +141,22 @@ class DatasetUrlHandler(UrlHandler):
                 ctx.private = info.private
 
                 ctx.readme_text = self.hf_client.get_readme(parsed.hf_id) or ""
+
+                # IMPORTANT: also collect files for datasets
+                try:
+                    files = self.hf_client.list_dataset_files(parsed.hf_id)
+                    ctx.files = [
+                        FileInfo(
+                            path=Path(fi.path),
+                            size_bytes=int(fi.size or 0),
+                            ext=_safe_ext(fi.path),
+                        )
+                        for fi in (files or [])
+                    ]
+                except Exception as fe:
+                    ctx.api_errors += 1
+                    ctx.fetch_logs.append(f"HF dataset files error: {fe}")
+
                 break
             except FileNotFoundError as e:
                 ctx.api_errors += 1
@@ -319,13 +305,15 @@ def datasets_from_card(
         if isinstance(ds, list):
             for d in ds:
                 if isinstance(d, str) and "/" in d:
-                    out.append(_norm_id(d.removeprefix("datasets/")))
+                    # avoid .removeprefix for py3.8 compat
+                    d_norm = _strip_prefix(d, "datasets/")
+                    out.append(_norm_id(d_norm))
     if tags:
         for t in tags:
             if isinstance(t, str) and t.lower().startswith("dataset:"):
                 did = t.split(":", 1)[1]
                 if "/" in did:
-                    out.append(_norm_id(did.removeprefix("datasets/")))
+                    out.append(_norm_id(_strip_prefix(did, "datasets/")))
     return _uniq_keep_order(out)
 
 

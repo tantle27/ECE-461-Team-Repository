@@ -135,6 +135,36 @@ def read_urls(path: str) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _attach_explicit_links(
+    model_ctx: RepoContext,
+    code_url: str,
+    dataset_url: str,
+) -> None:
+    """
+    If the row provided code_url and/or dataset_url, build those contexts,
+    tag them as explicit, and attach to the model context so metrics see them.
+    """
+    if code_url:
+        print(f"Attaching explicit code link: {code_url}", file=sys.stderr)
+        try:
+            cat_c, code_ctx = _build_context_for_url(code_url)
+            if cat_c == "CODE" and code_ctx:
+                code_ctx.__dict__["_link_source"] = "explicit"
+                model_ctx.link_code(code_ctx)
+        except Exception as e:
+            model_ctx.fetch_logs.append(f"explicit code attach failed: {e}")
+
+    if dataset_url:
+        print(f"Attaching explicit dataset link: {dataset_url}", file=sys.stderr)
+        try:
+            cat_d, ds_ctx = _build_context_for_url(dataset_url)
+            if cat_d == "DATASET" and ds_ctx:
+                ds_ctx.__dict__["_link_source"] = "explicit"
+                model_ctx.link_dataset(ds_ctx)
+        except Exception as e:
+            model_ctx.fetch_logs.append(f"explicit dataset attach failed: {e}")
+
+
 def _find_project_root(start: Path) -> Optional[Path]:
     cur = start.resolve()
     for _ in range(10):
@@ -540,11 +570,11 @@ def main() -> int:
                 continue
 
             category, ctx = _build_context_for_url(url)
+            if category == "MODEL":
+                _attach_explicit_links(ctx, code_url, dataset_url)
             model_id = persist_context(db_path, ctx, category)
-
             if category == "MODEL":
                 _evaluate_and_persist(db_path, model_id, category, ctx)
-                succeeded += 1
 
                 if code_id is not None or dataset_id is not None:
                     conn = db.open_db(db_path)

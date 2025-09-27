@@ -142,17 +142,24 @@ def _emit_ndjson(
     def lat(k):
         return int(per_metric_lat_ms.get(k, 0))
 
-    size = get("Size", 0.0)
-    size_score = {
-        "raspberry_pi": max(0.0, min(1.0, size - 0.10)),
-        "jetson_nano": max(0.0, min(1.0, size - 0.05)),
-        "desktop_pc": max(0.0, min(1.0, size)),
-        "aws_server": max(0.0, min(1.0, size)),
-    }
+    dev_scores = getattr(ctx, "_size_device_scores", None)
+    if isinstance(dev_scores, dict) and dev_scores:
+        size_score = {
+            "raspberry_pi": round(float(dev_scores.get("raspberry_pi", 0.0)), 2),
+            "jetson_nano": round(float(dev_scores.get("jetson_nano", 0.0)), 2),
+            "desktop_pc": round(float(dev_scores.get("desktop_pc", 0.0)), 2),
+            "aws_server": round(float(dev_scores.get("aws_server", 0.0)), 2),
+        }
+    else:
+        size = get("Size", 0.0)
+        size_score = {
+            "raspberry_pi": round(max(0.0, min(1.0, size * 0.3)), 2),
+            "jetson_nano": round(max(0.0, min(1.0, size * 0.5)), 2),
+            "desktop_pc": round(max(0.0, min(1.0, size)), 2),
+            "aws_server": round(max(0.0, min(1.0, min(1.0, size + 0.05))), 2),
+        }
 
-    da = get("DatasetAvailability", 0.0)
-    cq = get("CodeQuality", 0.0)
-    ds_code = round((da + cq) / 2.0, 2)
+    ds_code = get("DatasetAvailability", 0.0)
 
     nd = {
         "name": name,

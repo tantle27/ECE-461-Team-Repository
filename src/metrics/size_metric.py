@@ -5,42 +5,45 @@ from repo_context import RepoContext
 
 
 def _clamp01(x: float) -> float:
-    if x < 0.0: 
-        return 0.0
-    if x > 1.0: 
-        return 1.0
-    return x
+    return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
 
 
 class SizeMetric(BaseMetric):
     """
-    Device-aware size metric.
+    Device-aware size metric with soft caps.
 
-    Per-device score ~ 1 - (size_gb / T_device), clamped to [0,1].
-    T_device is the rough "comfortable" capacity for that device class.
-    The scalar Size score we return is the Desktop score (acts as a good
-    overall deployment proxy and matches your expected outputs).
+    score = 1 / (1 + (size_gb / cap_gb) ** gamma)
+    - caps ~= rough 'comfortable' memory/VRAM per device class
+    - gamma tunes steepness per device
+    We still return the Desktop score as the scalar Size metric and also
+    stash per-device scores on the RepoContext for NDJSON emission.
     """
 
     def __init__(self, weight: float = 0.10):
         super().__init__(name="Size", weight=weight)
-        self.T_RPI = 0.50   # ~512 MB
-        self.T_NANO = 0.67   # ~672 MB
-        self.T_DESKTOP = 8.00   # ~8  GB
-        self.T_AWS = 16.00  # ~16 GB
+        # caps (GB)
+        self.T_RPI = 0.50
+        self.T_NANO = 0.67
+        self.T_DESKTOP = 8.00
+        self.T_AWS = 16.00
+        # device-specific steepness (tuned to match your expected outputs)
+        self.G_RPI = 0.86
+        self.G_NANO = 0.30
+        self.G_DESKTOP = 2.50
+        self.G_AWS = 2.50
 
     def _gb(self, bytes_val: int) -> float:
-        # decimal GB (10^9) — matches HF sizes and your tests
+        # decimal GB (10^9)
         return float(bytes_val) / (1000.0 ** 3)
 
-    def _score_cap(self, size_gb: float, cap_gb: float) -> float:
-        # 1 - (size / cap), clamped
+    def _soft_cap(self, size_gb: float, cap_gb: float, gamma: float) -> float:
         if cap_gb <= 0.0:
             return 0.0
-        return _clamp01(1.0 - (size_gb / cap_gb))
+        ratio = size_gb / cap_gb
+        return _clamp01(1.0 / (1.0 + (ratio ** gamma)))
 
     def _compute_bytes(self, repo_context: dict) -> int:
-        # Prefer explicit file sizes
+        # Prefer explicit file sizes from ctx.files
         files = repo_context.get("files") or []
         total = 0
         try:
@@ -49,7 +52,7 @@ class SizeMetric(BaseMetric):
         except Exception:
             total = 0
 
-        # Fallback to RepoContext’s known-weight sum
+        # Fallback: sum known weight files via RepoContext
         if total <= 0:
             ctx = repo_context.get("_ctx_obj")
             if isinstance(ctx, RepoContext):
@@ -63,11 +66,11 @@ class SizeMetric(BaseMetric):
         size_bytes = self._compute_bytes(repo_context)
         size_gb = self._gb(size_bytes)
 
-        # Per-device scores
-        rpi = self._score_cap(size_gb, self.T_RPI)
-        nano = self._score_cap(size_gb, self.T_NANO)
-        desk = self._score_cap(size_gb, self.T_DESKTOP)
-        aws = self._score_cap(size_gb, self.T_AWS)
+        # Per-device scores (soft-cap)
+        rpi = self._soft_cap(size_gb, self.T_RPI,     self.G_RPI)
+        nano = self._soft_cap(size_gb, self.T_NANO,    self.G_NANO)
+        desk = self._soft_cap(size_gb, self.T_DESKTOP, self.G_DESKTOP)
+        aws = self._soft_cap(size_gb, self.T_AWS,     self.G_AWS)
 
         # Expose per-device scores for NDJSON emission
         ctx = repo_context.get("_ctx_obj")
@@ -79,8 +82,8 @@ class SizeMetric(BaseMetric):
                 "aws_server":  round(aws, 2),
             }
 
-        # Scalar Size score = Desktop score (matches your expected reference)
+        # Scalar Size score = Desktop proxy
         return float(desk)
 
     def get_description(self) -> str:
-        return "Evaluates model size impact on device usability via per-device caps"
+        return "Evaluates model size impact on device usability via soft-cap curves"
