@@ -20,7 +20,6 @@ from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 
 Category = Literal["MODEL", "DATASET", "CODE"]
-logger = logging.getLogger("acme-cli")
 
 
 # ---------------- Logging ----------------
@@ -51,11 +50,9 @@ def setup_logging() -> None:
 
     if val <= 0:
         level = logging.CRITICAL + 1
-    elif val < 1:
-        level = logging.WARNING
     elif int(val) == 1:
         level = logging.INFO
-    else:
+    elif int(val) == 2:
         level = logging.DEBUG
 
     logging.basicConfig(
@@ -65,7 +62,7 @@ def setup_logging() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    logger.info("logging initialized: file=%s level=%s", log_file, logging.getLevelName(level))
+    logging.info("logging initialized: file=%s level=%s", log_file, logging.getLevelName(level))
 
 
 def _require_valid_github_token() -> str:
@@ -185,11 +182,11 @@ def _evaluate_and_persist(
         return
 
     url_disp = ctx.hf_id or ctx.gh_url or ctx.url or ""
-    logger.info("eval: id=%s category=%s url=%s", rid, category, url_disp)
+    logging.info("eval: id=%s category=%s url=%s", rid, category, url_disp)
 
     weights = init_weights()
     metrics = init_metrics()
-    logger.debug("metrics=%s", [m.name for m in metrics])
+    logging.debug("metrics=%s", [m.name for m in metrics])
 
     evaluator = MetricEval(metrics, weights)
     repo_ctx = {**ctx.__dict__, "_ctx_obj": ctx, "category": category}
@@ -218,17 +215,16 @@ def _evaluate_and_persist(
         except Exception as e:
             raw = 0.0
             repo_ctx.setdefault("_metric_errors", {})[m.name] = str(e)
-            logger.exception("metric: %s failed: %s", m.name, e)
         dur_ms = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
         val = _to_01(raw)
         scores[m.name] = val
         lats_ms[m.name] = dur_ms
-        logger.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, m.name, val, dur_ms)
+        logging.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, m.name, val, dur_ms)
 
     t0 = time.perf_counter_ns()
     net = _to_01(evaluator.aggregateScores(scores))
     net_lat = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
-    logger.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
+    logging.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
                 rid, category, net, net_lat)
 
     conn = db.open_db(db_path)
@@ -274,7 +270,7 @@ def _evaluate_and_persist(
 
     _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
 
-    logger.info("eval done: id=%s metrics=%d", rid, len(scores))
+    logging.info("eval done: id=%s metrics=%d", rid, len(scores))
 
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
@@ -292,7 +288,7 @@ def persist_context(
     if not canon:
         raise ValueError("Cannot derive canonical key")
 
-    logger.info("persist: category=%s key=%s url=%s", category, canon,
+    logging.info("persist: category=%s key=%s url=%s", category, canon,
                 (ctx.hf_id or ctx.gh_url or ctx.url or ""))
 
     base = {
@@ -332,7 +328,7 @@ def persist_context(
             conn, category=category, canonical_key=canon, base=base,
             files=files,
         )
-        logger.info("persisted: id=%s category=%s files=%d",
+        logging.info("persisted: id=%s category=%s files=%d",
                     rid, category, len(ctx.files or []))
 
         if category == "MODEL":
@@ -391,7 +387,7 @@ def persist_context(
                         ctx.fetch_logs.append(
                             f"Linked dataset hydrate failed for {ds_key}: {e}"
                         )
-                        logger.warning("dataset hydrate failed: %s", e)
+                        logging.warning("dataset hydrate failed: %s", e)
 
                 if ds_id is not None:
                     db.link_resources(conn, rid, ds_id, "MODEL_TO_DATASET")
@@ -453,13 +449,13 @@ def persist_context(
                             ctx.fetch_logs.append(
                                 f"Linked code failed for {code_url}: {e}"
                             )
-                            logger.warning("code hydrate failed: %s", e)
+                            logging.warning("code hydrate failed: %s", e)
 
                 if code_id is not None:
                     db.link_resources(conn, rid, code_id, "MODEL_TO_CODE")
 
         conn.commit()
-        logger.info("persist done: id=%s category=%s key=%s",
+        logging.info("persist done: id=%s category=%s key=%s",
                     rid, category, canon)
         return rid
     finally:
@@ -478,8 +474,8 @@ def main() -> int:
     db_path = _resolve_db_path()
     _ensure_path_secure(db_path)
 
-    logger.info("run start: urls=%d db=%s", len(urls), str(db_path))
-    logger.debug("urls=%s", urls)
+    logging.info("run start: urls=%d db=%s", len(urls), str(db_path))
+    logging.debug("urls=%s", urls)
 
     total = 0
     succeeded = 0
@@ -489,17 +485,17 @@ def main() -> int:
             t0 = time.perf_counter_ns()
             category, ctx = _build_context_for_url(url)
             ms = (time.perf_counter_ns() - t0) / 1e6
-            logger.info(
+            logging.info(
                 "context: built category=%s url=%s (%.1f ms)",
                 category,
                 url,
                 ms,
             )
-            logger.info("context summary: %s", _ctx_summary(ctx))
+            logging.info("context summary: %s", _ctx_summary(ctx))
 
             rid = persist_context(db_path, ctx, category)
             # print(f"[OK] {category:<7} saved id={rid} url={url}")
-            logger.info(
+            logging.info(
                 "persist ok: id=%s category=%s url=%s", rid, category, url
             )
             succeeded += 1
@@ -509,12 +505,12 @@ def main() -> int:
 
         except Exception as e:
             # print(f"[ERR] url={url} error={e}", file=sys.stderr)
-            logger.error(
+            logging.error(
                 "pipeline error: url=%s err=%s", url, e, exc_info=True
             )
 
     failures = total - succeeded
-    logger.info(
+    logging.info(
         "run end: %d/%d %s",
         succeeded,
         total,

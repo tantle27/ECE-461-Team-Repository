@@ -14,8 +14,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# ---------------- logger ----------------
-logger = logging.getLogger("acme-cli.gh_client")
 
 # ---------------- data models ----------------
 
@@ -110,7 +108,7 @@ def _sleep_until_reset(resp: requests.Response) -> None:
         try:
             delay = max(0, int(reset) - int(time.time())) + random.uniform(0.25, 0.75)
             delay = min(delay, 60.0)  # cap long sleeps
-            logger.info(
+            logging.info(
                 "GitHub rate limit reached. Sleeping ~%.1fs (reset=%s)",
                 delay,
                 reset,
@@ -120,7 +118,7 @@ def _sleep_until_reset(resp: requests.Response) -> None:
         except ValueError:
             pass
 
-    logger.info("GitHub throttling/backoff. Sleeping 2s.")
+    logging.info("GitHub throttling/backoff. Sleeping 2s.")
     time.sleep(2.0)
 
 
@@ -137,7 +135,7 @@ class GHClient:
     def __init__(self) -> None:
         token = os.getenv("GITHUB_TOKEN")
         if not token or not self._is_token_valid(token):
-            logger.error(
+            logging.error(
                 "GHClient initialization failed: GITHUB_TOKEN is missing or invalid format."
             )
             # print("Error: GITHUB_TOKEN is missing or invalid format.", file=sys.stderr)
@@ -147,20 +145,20 @@ class GHClient:
         try:
             resp = self._http.get("https://api.github.com/user")
             if resp.status_code != 200:
-                logger.error(
+                logging.error(
                     "GHClient initialization failed: GITHUB_TOKEN is not valid (status=%d).",
                     resp.status_code,
                 )
                 # print("Error: GITHUB_TOKEN is not valid.", file=sys.stderr)
                 sys.exit(1)
         except Exception as e:
-            logger.error(
+            logging.error(
                 "GHClient initialization failed: Exception during token check: %s", e
             )
             # print("Error: Could not verify GITHUB_TOKEN.", file=sys.stderr)
             sys.exit(1)
         self._etag_cache: dict[str, str] = {}
-        logger.debug(
+        logging.debug(
             "GHClient initialized (token=%s)", "present" if token else "absent"
         )
 
@@ -174,9 +172,9 @@ class GHClient:
     def get_repo(self, owner: str, repo: str) -> GHRepoInfo | None:
         data = self._get_json(f"/repos/{owner}/{repo}")
         if data is None:
-            logger.debug("get_repo: %s/%s -> not found or not modified", owner, repo)
+            logging.debug("get_repo: %s/%s -> not found or not modified", owner, repo)
             return None
-        logger.debug("get_repo: %s/%s -> ok", owner, repo)
+        logging.debug("get_repo: %s/%s -> ok", owner, repo)
         return GHRepoInfo(
             owner=owner,
             repo=repo,
@@ -188,10 +186,10 @@ class GHClient:
     def get_readme_markdown(self, owner: str, repo: str) -> str | None:
         data = self._get_json(f"/repos/{owner}/{repo}/readme")
         if not data or "download_url" not in data:
-            logger.debug("get_readme_markdown: no readme for %s/%s", owner, repo)
+            logging.debug("get_readme_markdown: no readme for %s/%s", owner, repo)
             return None
         url = data["download_url"]
-        logger.debug("get_readme_markdown: downloading raw readme %s", url)
+        logging.debug("get_readme_markdown: downloading raw readme %s", url)
         return self._get_text_absolute(url)
 
     def list_contributors(
@@ -204,7 +202,7 @@ class GHClient:
         items: list[dict[str, Any]] = []
         page = 1
         while page <= max_pages:
-            logger.debug("list_contributors: page %d for %s/%s", page, owner, repo)
+            logging.debug("list_contributors: page %d for %s/%s", page, owner, repo)
             batch = self._get_json(
                 f"/repos/{owner}/{repo}/contributors?per_page=100&page={page}"
             )
@@ -214,7 +212,7 @@ class GHClient:
             if len(batch) < 100:
                 break
             page += 1
-        logger.debug("list_contributors: total=%d for %s/%s", len(items), owner, repo)
+        logging.debug("list_contributors: total=%d for %s/%s", len(items), owner, repo)
         return items
 
     # -------- internals --------
@@ -225,16 +223,16 @@ class GHClient:
             etag = self._etag_cache.get(_etag_key(url))
             if etag:
                 headers["If-None-Match"] = etag
-                logger.debug("GET %s (If-None-Match sent)", url)
+                logging.debug("GET %s (If-None-Match sent)", url)
             else:
-                logger.debug("GET %s", url)
+                logging.debug("GET %s", url)
         else:
-            logger.debug("GET %s (no ETag)", url)
+            logging.debug("GET %s (no ETag)", url)
 
         try:
             resp = self._http.get(url, headers=headers)
         except Exception as e:
-            logger.error("Request failed: %s (%s)", url, e)
+            logging.error("Request failed: %s (%s)", url, e)
             raise
 
         if resp.status_code in (403, 429):
@@ -245,13 +243,13 @@ class GHClient:
             new_etag = resp.headers.get("ETag")
             if new_etag:
                 self._etag_cache[_etag_key(url)] = new_etag
-                logger.debug("Cached ETag for %s", url)
+                logging.debug("Cached ETag for %s", url)
         elif resp.status_code == 304:
-            logger.debug("304 Not Modified for %s", url)
+            logging.debug("304 Not Modified for %s", url)
         elif resp.status_code == 404:
-            logger.debug("404 Not Found for %s", url)
+            logging.debug("404 Not Found for %s", url)
         elif resp.status_code >= 400:
-            logger.warning("GitHub responded %d for %s", resp.status_code, url)
+            logging.warning("GitHub responded %d for %s", resp.status_code, url)
 
         return resp
 
@@ -271,5 +269,5 @@ class GHClient:
         try:
             return resp.json()
         except ValueError as e:
-            logger.warning("Failed to parse JSON from %s: %s", url, e)
+            logging.warning("Failed to parse JSON from %s: %s", url, e)
             return None
