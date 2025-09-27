@@ -21,6 +21,8 @@ from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 import json
 from typing import Optional
+import requests
+
 Category = Literal["MODEL", "DATASET", "CODE"]
 
 
@@ -38,12 +40,15 @@ def _validate_log_file_env() -> str:
         sys.exit(1)
 
     p = Path(log_file)
-
+    
+    # Check if file exists
     if not p.exists() or not p.is_file():
         sys.exit(1)
-
-    if not os.access(p, os.W_OK):
+    
+    # Check if file is writable
+    if not os.access(str(p), os.W_OK):
         sys.exit(1)
+        
     try:
         with open(p, "r+"):
             pass
@@ -102,15 +107,26 @@ def _require_valid_github_token() -> str:
     Enforces presence of a plausibly valid GitHub token in $GITHUB_TOKEN.
     We can't check server-side validity here, but we can reject obviously bad values.
     Exits(1) on failure.
+    Also tests the connection to GitHub after basic heuristics.
     """
     tok = os.environ.get("GITHUB_TOKEN", "")
     if not tok:
-        # print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     # Accept common formats: legacy 'ghp_' or modern 'github_pat_'
     if not (tok.startswith("ghp_") or tok.startswith("github_pat_")):
-        # print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
+        sys.exit(1)
+
+    # Test connection to GitHub API
+    try:
+        resp = requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"token {tok}"},
+            timeout=5
+        )
+        if resp.status_code != 200:
+            sys.exit(1)
+    except Exception:
         sys.exit(1)
 
     return tok
@@ -617,7 +633,9 @@ def _emit_error_ndjson(name_hint: str = "unknown", category: str = "MODEL") -> N
 
 
 if __name__ == "__main__":
-    _require_valid_github_token()
     _validate_log_file_env()
     setup_logging()
+    _require_valid_github_token()
+    logging.info("Validated LOG_FILE env and file access OK")
+    logging.info("Validated GITHUB_TOKEN format and GitHub API access OK")
     sys.exit(main())
