@@ -34,17 +34,14 @@ def setup_logging() -> None:
     """
     log_file = os.getenv("LOG_FILE")
     if not log_file:
-        # print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
         p = Path(log_file)
         p.parent.mkdir(parents=True, exist_ok=True)
-        # Check writability explicitly
         with open(p, "a", encoding="utf-8"):
             pass
     except Exception:
-        # print(f"ERROR: cannot open LOG_FILE '{log_file}': {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -475,7 +472,6 @@ def persist_context(
 def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(1)
-    
     url_file = sys.argv[1]
     urls = read_urls(url_file)
 
@@ -529,6 +525,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    _require_valid_github_token()
     setup_logging()
     sys.exit(main())
