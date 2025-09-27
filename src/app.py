@@ -23,6 +23,33 @@ Category = Literal["MODEL", "DATASET", "CODE"]
 
 
 # ---------------- Logging ----------------
+def _validate_log_file_env() -> str:
+    """
+    Validate LOG_FILE env var per spec:
+      - Must be set
+      - File must already exist (do NOT create it)
+      - Must be writable (we must be able to open for writing)
+    Exit(1) on failure.
+    """
+    log_file = os.getenv("LOG_FILE")
+    if not log_file:
+        sys.exit(1)
+
+    p = Path(log_file)
+
+    if not p.exists() or not p.is_file():
+        sys.exit(1)
+
+    if not os.access(p, os.W_OK):
+        sys.exit(1)
+    try:
+        with open(p, "r+"):
+            pass
+    except Exception:
+        sys.exit(1)
+
+    return log_file
+
 
 def setup_logging() -> None:
     """
@@ -524,5 +551,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _require_valid_github_token()
+    _validate_log_file_env()
     setup_logging()
     sys.exit(main())
