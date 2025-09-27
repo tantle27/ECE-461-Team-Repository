@@ -40,35 +40,44 @@ def _validate_log_file_env() -> str:
 
     log_file = os.getenv("LOG_FILE")
     if not log_file:
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
         p = Path(log_file)
     except Exception:
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     if not p.exists() or not p.is_file():
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
         if p.is_symlink():
+            print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
             sys.exit(1)
     except Exception:
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
         p_resolved = p.resolve(strict=True)
     except Exception:
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
     if not p_resolved.is_file():
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
         st = p_resolved.stat()
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
     except Exception:
         sys.exit(1)
 
     if not stat.S_ISREG(st.st_mode):
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -76,21 +85,26 @@ def _validate_log_file_env() -> str:
     except AttributeError:
         euid = None
     if euid is not None and st.st_uid != euid:
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     # Parent directory must exist, be a dir, and be writable by the user
     parent = p_resolved.parent
     if not parent.exists() or not parent.is_dir():
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
     if not os.access(parent, os.W_OK):
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     # File itself should be writable (no open/write performed)
     if not os.access(p_resolved, os.W_OK):
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     # Also require readability, so logging can read back if needed
     if not os.access(p_resolved, os.R_OK):
+        print("ERROR: LOG_FILE not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     return str(p_resolved)
@@ -150,12 +164,12 @@ def _require_valid_github_token() -> str:
     """
     tok = os.environ.get("GITHUB_TOKEN", "")
     if not tok:
-        # print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
+        print("ERROR: GITHUB_TOKEN not set; refusing to run.", file=sys.stderr)
         sys.exit(1)
 
     # Accept common formats: legacy 'ghp_' or modern 'github_pat_'
     if not (tok.startswith("ghp_") or tok.startswith("github_pat_")):
-        # print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
+        print("ERROR: GITHUB_TOKEN appears invalid (unexpected format).", file=sys.stderr)
         sys.exit(1)
 
     return tok
