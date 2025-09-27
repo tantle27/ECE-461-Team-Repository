@@ -236,7 +236,6 @@ def _build_context_for_url(url: str) -> tuple[Category, RepoContext]:
 def _evaluate_and_persist(
     db_path: Path, rid: int, category: Category, ctx: RepoContext
 ) -> None:
-
     if category != "MODEL":
         return
 
@@ -258,34 +257,51 @@ def _evaluate_and_persist(
         if not math.isfinite(v) or v < 0.0:
             return 0.0
         return 1.0 if v > 1.0 else v
+
     scores: Dict[str, float] = {}
     lats_ms: Dict[str, int] = {}
 
-    # start total timer
     eval_t0 = time.perf_counter_ns()
 
-    # per-metric timings
-    for m in metrics:
+    # -------- Parallel evaluation --------
+    raw_results = {}
+    durations: Dict[str, int] = {}
+
+    def timed_eval(metric):
         t0 = time.perf_counter_ns()
         try:
-            raw = m.evaluate(repo_ctx)
+            val = metric.evaluate(repo_ctx)
         except Exception as e:
-            raw = 0.0
-            repo_ctx.setdefault("_metric_errors", {})[m.name] = str(e)
+            repo_ctx.setdefault("_metric_errors", {})[metric.name] = str(e)
+            val = 0.0
         dur_ms = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
-        val = _to_01(raw)
-        scores[m.name] = val
-        lats_ms[m.name] = dur_ms
-        logging.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, m.name, val, dur_ms)
+        return metric.name, val, dur_ms
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor() as executor:
+        futures = {executor.submit(timed_eval, m): m for m in metrics}
+        for fut in as_completed(futures):
+            name, raw, dur = fut.result()
+            raw_results[name] = raw
+            durations[name] = dur
+            scores[name] = _to_01(raw)
+            lats_ms[name] = dur
+            logging.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, name, scores[name], dur)
 
     net = _to_01(evaluator.aggregateScores(scores))
 
-    total_eval_ms = max(1, int((time.perf_counter_ns() - eval_t0) // 1_000_000))
-    sum_metrics_ms = sum(int(v) for v in lats_ms.values())
-    net_lat = max(total_eval_ms, sum_metrics_ms)
+    total_eval_ms = max(
+        1, int((time.perf_counter_ns() - eval_t0) // 1_000_000)
+    )
+    net_lat = total_eval_ms
 
-    logging.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
-                 rid, category, net, net_lat)
+    logging.info(
+        "[SCORE] id=%s category=%s net=%.3f (%d ms)",
+        rid,
+        category,
+        net,
+        net_lat,
+    )
 
     conn = db.open_db(db_path)
     try:
@@ -332,7 +348,6 @@ def _evaluate_and_persist(
         _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
 
     logging.info("eval done: id=%s metrics=%d", rid, len(scores))
-
 
 def _canon_for(ctx: RepoContext, category: Category) -> str:
     if category == "MODEL":
