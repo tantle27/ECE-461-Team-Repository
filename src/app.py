@@ -42,11 +42,18 @@ def _validate_log_file_env() -> str:
     if not p.exists() or not p.is_file():
         sys.exit(1)
 
+    # Check basic write access
     if not os.access(p, os.W_OK):
         sys.exit(1)
+
+    # Try to open for append and write a test byte, then remove it
     try:
-        with open(p, "r+"):
-            pass
+        with open(p, "a+b") as f:
+            pos = f.tell()
+            f.write(b"\0")
+            f.flush()
+            f.seek(pos)
+            f.truncate()
     except Exception:
         sys.exit(1)
 
