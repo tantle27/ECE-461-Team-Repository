@@ -18,6 +18,7 @@ from metric_eval import MetricEval, init_metrics, init_weights
 from net_scorer import _emit_ndjson
 from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
+import json
 
 Category = Literal["MODEL", "DATASET", "CODE"]
 
@@ -116,21 +117,21 @@ def _require_valid_github_token() -> str:
 
 # ---------------- CLI + Paths ----------------
 
-def read_urls(arg: str) -> list[str]:
-    """Read newline- or comma-separated URLs; drop blanks."""
-    try:
-        with open(arg, "r", encoding="ascii") as f:
-            urls: list[str] = []
-            for line in f:
-                parts = [p.strip() for p in line.replace(",,", ",").split(",")]
-                urls.extend(p for p in parts if p)
-            return urls
-    except FileNotFoundError:
-        # print(f"Error: File '{arg}' not found.", file=sys.stderr)
-        sys.exit(1)
-    except Exception:
-        # print(f"Error reading file '{arg}': {e}", file=sys.stderr)
-        sys.exit(1)
+def read_urls(path: str) -> list[tuple[str, str, str]]:
+    """Read file of CSV triples: code,dataset,model (blanks allowed)."""
+    rows: list[tuple[str, str, str]] = []
+    with open(path, "r", encoding="ascii") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                rows.append(("", "", ""))
+                continue
+            parts = [p.strip() for p in line.split(",", 2)]
+            while len(parts) < 3:
+                parts.append("")
+            code_url, dataset_url, model_url = parts[0], parts[1], parts[2]
+            rows.append((code_url, dataset_url, model_url))
+    return rows
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -299,7 +300,6 @@ def _evaluate_and_persist(
         conn.close()
     if category == "MODEL":
         _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
-
     logging.info("eval done: id=%s metrics=%d", rid, len(scores))
 
 
@@ -494,60 +494,95 @@ def persist_context(
 
 # ---------------- Entry ----------------
 
-
 def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(1)
     url_file = sys.argv[1]
-    urls = read_urls(url_file)
 
+    rows = read_urls(url_file)
     db_path = _resolve_db_path()
     _ensure_path_secure(db_path)
 
-    logging.info("run start: urls=%d db=%s", len(urls), str(db_path))
-    logging.debug("urls=%s", urls)
-
-    total = 0
+    total = len(rows)
     succeeded = 0
-    for url in urls:
-        total += 1
-        try:
-            t0 = time.perf_counter_ns()
-            category, ctx = _build_context_for_url(url)
-            ms = (time.perf_counter_ns() - t0) / 1e6
-            logging.info(
-                "context: built category=%s url=%s (%.1f ms)",
-                category,
-                url,
-                ms,
-            )
-            logging.info("context summary: %s", _ctx_summary(ctx))
 
-            rid = persist_context(db_path, ctx, category)
-            # print(f"[OK] {category:<7} saved id={rid} url={url}")
-            logging.info(
-                "persist ok: id=%s category=%s url=%s", rid, category, url
-            )
-            succeeded += 1
+    for code_url, dataset_url, model_url in rows:
+        code_id = None
+        dataset_id = None
+
+        try:
+            if code_url:
+                cat, ctx = _build_context_for_url(code_url)
+                if cat == "CODE":
+                    code_id = persist_context(db_path, ctx, cat)
+                else:
+                    logging.warning("code column parsed as %s, skipping: %s", cat, code_url)
+        except Exception as e:
+            logging.warning("code persist failed: %s", e)
+
+        try:
+            if dataset_url:
+                cat, ctx = _build_context_for_url(dataset_url)
+                if cat == "DATASET":
+                    dataset_id = persist_context(db_path, ctx, cat)
+                else:
+                    logging.warning("dataset column parsed as %s, skipping: %s", cat, dataset_url)
+        except Exception as e:
+            logging.warning("dataset persist failed: %s", e)
+
+        try:
+            url = (model_url or "").strip()
+            if not url:
+                _emit_error_ndjson("unknown", "MODEL")
+                continue
+
+            category, ctx = _build_context_for_url(url)
+            model_id = persist_context(db_path, ctx, category)
 
             if category == "MODEL":
-                _evaluate_and_persist(db_path, rid, category, ctx)
+                _evaluate_and_persist(db_path, model_id, category, ctx)
+                succeeded += 1
+
+                if code_id is not None or dataset_id is not None:
+                    conn = db.open_db(db_path)
+                    try:
+                        if dataset_id is not None:
+                            db.link_resources(conn, model_id, dataset_id, "MODEL_TO_DATASET")
+                        if code_id is not None:
+                            db.link_resources(conn, model_id, code_id, "MODEL_TO_CODE")
+                        conn.commit()
+                    finally:
+                        conn.close()
+            else:
+                _emit_error_ndjson(url, category)
 
         except Exception as e:
-            # print(f"[ERR] url={url} error={e}", file=sys.stderr)
-            logging.error(
-                "pipeline error: url=%s err=%s", url, e, exc_info=True
-            )
+            logging.error("model pipeline failed: url=%s err=%s", model_url, e, exc_info=True)
+            _emit_error_ndjson(model_url or "unknown", "MODEL")
 
-    failures = total - succeeded
-    logging.info(
-        "run end: %d/%d %s",
-        succeeded,
-        total,
-        "OK" if failures == 0 else "PARTIAL",
-    )
-    # print(0 if failures == 0 else 1)
-    sys.exit(0 if failures == 0 else 1)
+    sys.exit(0 if succeeded == total else 1)
+
+
+def _emit_error_ndjson(name_hint: str = "unknown", category: str = "MODEL") -> None:
+    name = (name_hint.rstrip("/").split("/")[-1] or "unknown") if name_hint else "unknown"
+    nd = {
+        "name": name,
+        "category": category,
+        "net_score": 0.0, "net_score_latency": 1,
+        "ramp_up_time": 0.0, "ramp_up_time_latency": 1,
+        "bus_factor": 0.0, "bus_factor_latency": 1,
+        "performance_claims": 0.0, "performance_claims_latency": 1,
+        "license": 0.0, "license_latency": 1,
+        "size_score": {
+            "raspberry_pi": 0.0, "jetson_nano": 0.0,
+            "desktop_pc": 0.0, "aws_server": 0.0
+        },
+        "size_score_latency": 1,
+        "dataset_and_code_score": 0.0, "dataset_and_code_score_latency": 1,
+        "dataset_quality": 0.0, "dataset_quality_latency": 1,
+        "code_quality": 0.0, "code_quality_latency": 1,
+    }
+    print(json.dumps(nd, separators=(",", ":"), ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
