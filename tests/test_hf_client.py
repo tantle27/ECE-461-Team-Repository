@@ -200,8 +200,8 @@ class TestGitHubMatcher:
         assert "test" in GitHubMatcher._normalize("test-project-dev")
 
     def test_github_matcher_tokenize_method(self):
-        """Test GitHubMatcher._tokenize static method."""
-        tokens = GitHubMatcher._tokenize("test-model-123")
+        """Test GitHubMatcher._tokens static method."""
+        tokens = GitHubMatcher._tokens("test-model-123")
         assert isinstance(tokens, set)
         assert "test" in tokens
         assert "model" in tokens

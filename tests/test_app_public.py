@@ -49,11 +49,11 @@ def test_read_urls(tmp_path):
     f = tmp_path / "urls.txt"
     f.write_text("http://a.com\nhttp://b.com\n")
     urls = app.read_urls(str(f))
-    assert urls == ["http://a.com", "http://b.com"]
+    assert urls == [("http://a.com", "", ""), ("http://b.com", "", "")]
     f.write_text("http://a.com,http://b.com\n")
     urls = app.read_urls(str(f))
-    assert urls == ["http://a.com", "http://b.com"]
+    assert urls == [("http://a.com", "http://b.com", "")]
 
 def test_read_urls_file_not_found():
-    with pytest.raises(SystemExit):
+    with pytest.raises(FileNotFoundError):
         app.read_urls("not_a_file.txt")
