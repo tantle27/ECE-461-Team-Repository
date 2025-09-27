@@ -547,7 +547,7 @@ def main() -> int:
         "OK" if failures == 0 else "PARTIAL",
     )
     # print(0 if failures == 0 else 1)
-    return 0 if failures == 0 else 1
+    sys.exit(0 if failures == 0 else 1)
 
 
 if __name__ == "__main__":
