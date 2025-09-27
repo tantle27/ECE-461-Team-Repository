@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 import logging
 import os
 import platform
@@ -184,6 +182,8 @@ def _build_context_for_url(url: str) -> tuple[Category, RepoContext]:
 def _evaluate_and_persist(
     db_path: Path, rid: int, category: Category, ctx: RepoContext
 ) -> None:
+    import math
+
     if category != "MODEL":
         return
 
@@ -197,24 +197,40 @@ def _evaluate_and_persist(
     evaluator = MetricEval(metrics, weights)
     repo_ctx = {**ctx.__dict__, "_ctx_obj": ctx, "category": category}
 
+    def _to_01(x: object) -> float:
+        """ to [0,1], treat bad/NaN/inf as 0.0."""
+        try:
+            v = float(x)
+        except Exception:
+            return 0.0
+        if not math.isfinite(v):
+            return 0.0
+        if v < 0.0:
+            return 0.0
+        if v > 1.0:
+            return 1.0
+        return v
+
     scores: Dict[str, float] = {}
     lats_ms: Dict[str, int] = {}
+
     for m in metrics:
         t0 = time.perf_counter_ns()
         try:
-            val = float(m.evaluate(repo_ctx))
+            raw = m.evaluate(repo_ctx)
         except Exception as e:
-            val = 0.0
+            raw = 0.0
             repo_ctx.setdefault("_metric_errors", {})[m.name] = str(e)
             logger.exception("metric: %s failed: %s", m.name, e)
-        lats_ms[m.name] = int((time.perf_counter_ns() - t0) / 1e6)
+        dur_ms = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
+        val = _to_01(raw)
         scores[m.name] = val
-        logger.info("[METRIC] id=%s %s=%.3f (%d ms)",
-                    rid, m.name, val, lats_ms[m.name])
+        lats_ms[m.name] = dur_ms
+        logger.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, m.name, val, dur_ms)
 
     t0 = time.perf_counter_ns()
-    net = evaluator.aggregateScores(scores)
-    net_lat = int((time.perf_counter_ns() - t0) / 1e6)
+    net = _to_01(evaluator.aggregateScores(scores))
+    net_lat = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
     logger.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
                 rid, category, net, net_lat)
 
@@ -231,16 +247,15 @@ def _evaluate_and_persist(
             if (m.name == "DatasetQuality"
                     and "_dataset_quality_llm_parts" in repo_ctx):
                 aux["llm_parts"] = repo_ctx["_dataset_quality_llm_parts"]
-            if "_metric_errors" in repo_ctx and m.name in repo_ctx[
-                    "_metric_errors"]:
+            if "_metric_errors" in repo_ctx and m.name in repo_ctx["_metric_errors"]:
                 aux["error"] = repo_ctx["_metric_errors"][m.name]
 
             db.upsert_metric(
                 conn,
                 resource_id=rid,
                 metric_name=m.name,
-                value=float(scores.get(m.name, -1.0)),
-                latency_ms=int(lats_ms.get(m.name, 0)),
+                value=float(scores.get(m.name, 0.0)),
+                latency_ms=int(lats_ms.get(m.name, 1)),
                 aux=aux,
                 metric_version=ver,
                 input_fingerprint_parts=fp,
@@ -250,8 +265,8 @@ def _evaluate_and_persist(
             conn,
             resource_id=rid,
             metric_name="NetScore",
-            value=net,
-            latency_ms=net_lat,
+            value=float(net),
+            latency_ms=int(net_lat),
             aux={},
             metric_version=ver,
             input_fingerprint_parts=fp,
@@ -261,7 +276,7 @@ def _evaluate_and_persist(
         conn.close()
 
     _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
-    # print(f"[EVAL] {category:<7} id={rid} net={net:.3f} url={url_disp}")
+
     logger.info("eval done: id=%s metrics=%d", rid, len(scores))
 
 
@@ -461,7 +476,7 @@ def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(1)
     
-    _require_valid_github_token()
+    
     url_file = sys.argv[1]
     urls = read_urls(url_file)
 
@@ -515,5 +530,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _require_valid_github_token()
     setup_logging()
     sys.exit(main())
