@@ -1,3 +1,78 @@
+def test_hfclient_parse_tree_html_and_resolve_url():
+    from src.api.hf_client import HFClient
+    client = HFClient()
+    # Patch _text_get to return HTML with two files
+    import re
+    html = '/id/blob/main/foo.py" /id/blob/main/bar.txt"'
+    from src.api import hf_client as hfc
+    hfc._text_get = lambda session, url: html
+    out = client._parse_tree_html("id", revision="main")
+    paths = [f.path for f in out]
+    assert "foo.py" in paths and "bar.txt" in paths
+    # _resolve_url
+    url = client._resolve_url("id", "foo.py", revision="main", repo_type="model")
+    assert url.endswith("/main/foo.py")
+
+def test_hfclient_get_readme_and_model_index_json_fallbacks():
+    from src.api.hf_client import HFClient
+    client = HFClient()
+    # Patch _text_get to return None for all
+    from src.api import hf_client as hfc
+    hfc._text_get = lambda session, url: None
+    assert client.get_readme("id") is None
+    # Patch _json_get to return None for all
+    hfc._json_get = lambda session, url: None
+    assert client.get_model_index_json("id") is None
+
+def test_hfclient_list_model_files_html_fallback():
+    from src.api.hf_client import HFClient, HFFileInfo
+    client = HFClient()
+    client._api_model_json = lambda hf_id: None
+    client._api_tree_json = lambda base, revision="main": None
+    client.api = None
+    client._parse_tree_html = lambda base, revision="main": [HFFileInfo(path="foo.py", size=None)]
+    out = client.list_model_files("id")
+    assert out and out[0].path == "foo.py"
+def test_hfclient_fill_missing_sizes_and_head_size():
+    from src.api.hf_client import HFClient, HFFileInfo
+    client = HFClient()
+    # Patch _head_size to return a value for .bin, None for .txt
+    client._head_size = lambda url: 123 if url.endswith(".bin") else None
+    files = [HFFileInfo(path="a.bin", size=None), HFFileInfo(path="b.txt", size=None)]
+    out = client._fill_missing_sizes("id", files, repo_type="model", revision="main")
+    assert out[0].size == 123
+    assert out[1].size is None
+
+def test_hfclient_head_size_error():
+    from src.api.hf_client import HFClient
+    client = HFClient()
+    # Patch _session.head to raise
+    class Dummy:
+        def head(self, *a, **k): raise Exception("fail")
+    client._session = Dummy()
+    assert client._head_size("url") is None
+
+def test_hfclient_list_files_html_fallback(monkeypatch):
+    from src.api.hf_client import HFClient, HFFileInfo
+    client = HFClient()
+    # Patch _api_model_json and _api_tree_json to return None
+    client._api_model_json = lambda hf_id: None
+    client._api_tree_json = lambda base, revision="main": None
+    client.api = None
+    # Patch _parse_tree_html to return a file
+    client._parse_tree_html = lambda base, revision="main": [HFFileInfo(path="foo.py", size=None)]
+    out = client.list_files("id")
+    assert out and out[0].path == "foo.py"
+
+def test_hfclient_get_model_info_and_dataset_info_fallback():
+    from src.api.hf_client import HFClient
+    client = HFClient()
+    client._api_model_json = lambda hf_id: None
+    client.api = None
+    info = client.get_model_info("id")
+    assert info.hf_id == "id"
+    info2 = client.get_dataset_info("id")
+    assert info2.hf_id == "id"
 """
 Comprehensive unit tests for hf_client.py aligned with the refactored client
 (no token handling, public endpoints only).

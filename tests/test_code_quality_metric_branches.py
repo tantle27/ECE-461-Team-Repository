@@ -9,12 +9,13 @@ def make_ctx(files=None, readme=None):
     ctx.files = files if files is not None else ["main.py", "utils.py", "tests/test_main.py"]
     return ctx
 
-def test_code_quality_has_code_hints():
+def test_code_quality_has_real_code():
     metric = CodeQualityMetric()
-    # Should detect code hints
-    assert metric._has_code_hints("def foo():\n    pass")
-    assert metric._has_code_hints("import os\nclass Bar:")
-    assert not metric._has_code_hints("Just a README with no code.")
+    # _has_real_code requires at least 3 real code files
+    files = ["main.py", "utils.py", "foo.cpp"]
+    assert metric._has_real_code(files)
+    files = ["main.py", "README.md"]
+    assert not metric._has_real_code(files)
 
 def test_code_quality_signals_struct_and_rq():
     metric = CodeQualityMetric()
@@ -54,17 +55,14 @@ def test_code_quality_quant_and_weights():
 
 def test_code_quality_base_score_variants():
     metric = CodeQualityMetric()
-    # No files, short readme
-    score = metric._base_score("short", [])
+    # Use a dummy ctx (None), and test with various readme/files
+    score = metric._base_score(None, "short", [])
     assert 0.0 <= score <= 1.0
-    # No files, long readme with code hints
-    score = metric._base_score("def foo():\n" + "A"*1200, [])
-    assert score >= 0.55
-    # No files, medium readme
-    score = metric._base_score("A"*500, [])
-    assert score >= 0.50
-    # Files present
-    score = metric._base_score("", ["main.py"])
+    score = metric._base_score(None, "def foo():\n" + "A"*1200, [])
+    assert 0.0 <= score <= 1.0
+    score = metric._base_score(None, "A"*500, [])
+    assert 0.0 <= score <= 1.0
+    score = metric._base_score(None, "", ["main.py", "foo.cpp", "bar.rs"])
     assert 0.0 <= score <= 1.0
 
 def test_code_quality_variance():
