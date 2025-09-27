@@ -476,7 +476,6 @@ def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(1)
     
-    
     url_file = sys.argv[1]
     urls = read_urls(url_file)
 
