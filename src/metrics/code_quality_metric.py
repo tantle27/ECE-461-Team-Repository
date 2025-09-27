@@ -1,33 +1,45 @@
+# src/metrics/code_quality_metric.py
 from __future__ import annotations
 
-import json
+"""
+CodeQualityMetric
+-----------------
+Scores *code* quality for models by inspecting the richest linked code repo
+(preferred) or, if none exists, the model context itself. If we cannot find
+meaningful code (no source files), the metric hard-fails with 0.0. When real
+code is present, we compute a generous heuristic score and optionally blend
+with an LLM judgment.
+"""
+
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+import json
+from typing import Any, Dict, List, Tuple
 
 from repo_context import RepoContext
 from .base_metric import BaseMetric
 
 try:
     from api.llm_client import LLMClient
-except Exception:
-    LLMClient = None
-import logging
+except Exception:  # pragma: no cover - environment-dependent
+    LLMClient = None  # type: ignore[assignment]
 
 
 def _c01(x: Any) -> float:
+    """Clamp to [0, 1] with best-effort float conversion."""
     try:
         xf = float(x)
     except Exception:
         return 0.0
-    if xf < 0:
+    if xf < 0.0:
         return 0.0
-    if xf > 1:
+    if xf > 1.0:
         return 1.0
     return xf
 
 
 @dataclass(frozen=True)
 class _Blend:
+    """LLM/heuristic blending configuration."""
     max_llm_w: float = 0.60
     base_llm_w: float = 0.30
     cov_gain: float = 0.40
@@ -36,69 +48,111 @@ class _Blend:
 
 class CodeQualityMetric(BaseMetric):
     """
-    Scores code quality from README + in-context file list only (no gh_url).
+    Scores code quality from the best available *code* context:
+    - Uses the richest linked code repo when available.
+    - If no real source files are found, returns 0.0 (README is not enough).
+    - Otherwise, computes a generous heuristic score and blends with an LLM
+      score (when the LLM client is available).
     """
 
-    def __init__(self, weight: float = 0.2, use_llm: bool = True) -> None:
+    def __init__(self, weight: float = 0.20, use_llm: bool = True) -> None:
         super().__init__(name="CodeQuality", weight=weight)
         self._use_llm = use_llm
         self._llm = LLMClient() if LLMClient else None
         self._blend = _Blend()
 
-    # -------- public --------
+    # ---------- public ----------
 
     def evaluate(self, repo_context: dict) -> float:
         ctx = repo_context.get("_ctx_obj")
         if not isinstance(ctx, RepoContext):
             return 0.0
 
-        files = self._files(ctx)
-        readme = self._readme(ctx)
-        base = self._base_score(readme, files)
+        # Prefer the richest linked code repo.
+        code_ctx = self._best_code_ctx(ctx)
+        effective_ctx = code_ctx or ctx
+
+        files = self._files(effective_ctx)
+        readme = self._readme(effective_ctx)
+
+        # HARD GATE: if there is no real code, fail with 0.0.
+        if not self._has_real_code(files):
+            return 0.0
+
+        base = self._base_score(effective_ctx, readme, files)
+
         llm_ready = (
-            self._use_llm
-            and self._llm
-            and getattr(self._llm, "provider", None)
+            self._use_llm and self._llm and getattr(self._llm, "provider", None)
         )
         if not llm_ready:
-            logging.info("CodeQuality LLM not ready, using base score only.")
             return base
 
         signals = self._signals(readme, files)
         q = self._quant(signals)
         cov = self._coverage(signals)
         var = self._variance(q)
+
         llm_w = min(
             self._blend.max_llm_w,
             self._blend.base_llm_w
-            + (1 - cov) * self._blend.cov_gain
+            + (1.0 - cov) * self._blend.cov_gain
             + var * self._blend.var_gain,
         )
 
         try:
             llm, parts = self._llm_score(readme, files, signals)
             repo_context["_code_quality_llm_parts"] = parts
-            logging.info(
-                f"CodeQuality LLM parts: {parts}, cov={cov:.3f}, "
-                f"var={var:.3f}, llm_w={llm_w:.3f}"
-            )
-            return _c01((1 - llm_w) * base + llm_w * llm)
+            return _c01((1.0 - llm_w) * base + llm_w * llm)
         except Exception:
             return base
 
     def get_description(self) -> str:
         return (
-            "Quality from README+FILE_LIST only; tests/CI/lint/typing/format/"
-            "docs/structure, generous LLM blend."
+            "Evaluates code quality from the richest linked code repo "
+            "(or model context). If no source files are present, returns 0.0. "
+            "With code present, uses generous heuristics and an optional "
+            "LLM blend."
         )
 
-    # -------- internals --------
+    # ---------- selection & gating ----------
 
-    def _files(self, ctx: RepoContext) -> list[str]:
-        out: list[str] = []
+    def _best_code_ctx(self, ctx: RepoContext) -> RepoContext | None:
+        """Choose the richest linked code repo (file count, then README length)."""
+        candidates: List[RepoContext] = [
+            c for c in (getattr(ctx, "linked_code", None) or [])
+            if isinstance(c, RepoContext)
+        ]
+        if not candidates:
+            return None
+
+        def richness(c: RepoContext) -> Tuple[int, int]:
+            files = getattr(c, "files", None) or []
+            rd = getattr(c, "readme_text", "") or ""
+            return (len(files), len(rd))
+
+        return max(candidates, key=richness)
+
+    def _has_real_code(self, files: List[str]) -> bool:
+        """
+        Return True only if we see actual source files.
+        README-only or configs do not count.
+        """
+        code_like = sum(
+            1
+            for p in files
+            if p.endswith(
+                (".py", ".ts", ".js", ".cpp", ".cc", ".c", ".java", ".go", ".rs")
+            )
+        )
+        # Require at least a few real source files.
+        return code_like >= 3
+
+    # ---------- extraction ----------
+
+    def _files(self, ctx: RepoContext) -> List[str]:
+        out: List[str] = []
         for f in getattr(ctx, "files", []) or []:
-            p = str(getattr(f, "path", "")).replace("\\", "/").lstrip("./")
-            p = p.lower()
+            p = str(getattr(f, "path", "")).replace("\\", "/").lstrip("./").lower()
             if p:
                 out.append(p)
         return out
@@ -106,20 +160,9 @@ class CodeQualityMetric(BaseMetric):
     def _readme(self, ctx: RepoContext) -> str:
         return (getattr(ctx, "readme_text", "") or "")[:8000]
 
-    def _has_code_hints(self, readme: str) -> bool:
-        r = (readme or "").lower()
-        keys = (
-            "```",
-            "import ",
-            "from ",
-            "def ",
-            "class ",
-            "pytorch",
-            "transformers",
-        )
-        return any(k in r for k in keys)
+    # ---------- heuristics ----------
 
-    def _signals(self, readme: str, files: list[str]) -> Dict[str, Any]:
+    def _signals(self, readme: str, files: List[str]) -> Dict[str, Any]:
         fs = set(files)
         rl = (readme or "").lower()
 
@@ -138,11 +181,7 @@ class CodeQualityMetric(BaseMetric):
         examples = any(p.startswith(("examples/", "example/")) for p in fs)
 
         if not fs:
-            tests_dir = tests_dir or any(
-                w in rl for w in ("pytest", "unittest", "unit test")
-            )
-            if any(w in rl for w in ("pytest", "unit test")):
-                test_cnt = max(test_cnt, 1)
+            tests_dir = False
 
         return {
             "repo_size": len(fs),
@@ -236,16 +275,15 @@ class CodeQualityMetric(BaseMetric):
         structure += 0.15 if st["reqs"] else 0.0
         structure = min(1.0, structure)
 
-        q = {
+        return {
             "tests": tests,
             "ci": ci,
             "lint_fmt": lint_fmt,
             "typing": typing,
             "docs": docs,
             "structure": structure,
-            "recency": 0.6,  # neutral
+            "recency": 0.6,  # neutral placeholder if you add recency later
         }
-        return q
 
     def _weights(self, s: Dict[str, Any]) -> Dict[str, float]:
         w = {
@@ -275,41 +313,43 @@ class CodeQualityMetric(BaseMetric):
             w["ci"] += 0.02
             w["docs"] -= 0.03
 
-        ssum = sum(w.values())
-        return {k: v / ssum for k, v in w.items()}
+        total = sum(w.values())
+        return {k: (v / total) for k, v in w.items()}
 
-    def _base_score(self, readme: str, files: list[str]) -> float:
+    def _base_score(
+        self,
+        ctx: RepoContext,
+        readme: str,
+        files: List[str],
+    ) -> float:
         s = self._signals(readme, files)
         q = self._quant(s)
         w = self._weights(s)
         base = _c01(sum(q[k] * w[k] for k in w))
-        if not files:
-            rlen = len(readme or "")
-            if rlen >= 1200 or self._has_code_hints(readme):
-                base = max(base, 0.55)
-            elif rlen >= 400:
-                base = max(base, 0.50)
-            else:
-                base = max(base, 0.45)
-        return base
 
-    def _variance(self, q: Dict[str, float]) -> float:
-        vals = list(q.values())
-        m = sum(vals) / len(vals)
-        var = sum((v - m) ** 2 for v in vals) / len(vals)
-        return _c01(var / 0.25)
+        # Popularity/readme floors only apply when code exists (it does here).
+        dl = int(getattr(ctx, "downloads_all_time", 0) or 0)
+        likes = int(getattr(ctx, "likes", 0) or 0)
+        if likes > 1000 or dl > 1_000_000:
+            base = max(base, 0.78)
+        elif likes > 200 or dl > 200_000:
+            base = max(base, 0.72)
+        if s["lint"] or s["ci"] or s["test_has_dir"]:
+            base = max(base, 0.60)
 
-    # -------- LLM --------
+        return _c01(base)
+
+    # ---------- llm ----------
 
     def _llm_score(
         self,
         readme: str,
-        files: list[str],
+        files: List[str],
         signals: Dict[str, Any],
     ) -> Tuple[float, Dict[str, float]]:
-        sys_p = (
-            "You are a software-quality rater. " "Return ONLY one JSON object."
-        )
+        assert self._llm is not None  # guarded by caller
+
+        sys_p = "You are a software-quality rater. Return ONLY one JSON object."
         sample_files = "\n".join(files[:3500])
         prompt = (
             "Rate 0..1 for each key; ground in FACTS/README/FILE_LIST.\n"
@@ -324,21 +364,17 @@ class CodeQualityMetric(BaseMetric):
             f"{sample_files}\n---\n"
         )
         res = self._llm.ask_json(sys_p, prompt, max_tokens=380)
-        ok = getattr(res, "ok", False)
-        if not ok or not isinstance(res.data, dict):
+        if not getattr(res, "ok", False) or not isinstance(res.data, dict):
             raise RuntimeError(getattr(res, "error", "LLM error"))
 
         def g(key: str) -> float:
             return _c01(res.data.get(key, 0.0))
 
         parts = {
-            k: g(k)
-            for k in (
-                "maintainability",
-                "readability",
-                "documentation",
-                "reusability",
-            )
+            "maintainability": g("maintainability"),
+            "readability": g("readability"),
+            "documentation": g("documentation"),
+            "reusability": g("reusability"),
         }
         llm = (
             0.33 * parts["maintainability"]
@@ -347,6 +383,8 @@ class CodeQualityMetric(BaseMetric):
             + 0.15 * parts["reusability"]
         )
         return _c01(llm), parts
+
+    # ---------- coverage & variance ----------
 
     def _coverage(self, s: Dict[str, Any]) -> float:
         bits = [
@@ -358,4 +396,10 @@ class CodeQualityMetric(BaseMetric):
             s["struct"]["pyproject_or_setup"],
             (s["rq"]["len"] > 400) or (s["rq"]["fences"] >= 2),
         ]
-        return sum(1.0 if b else 0.0 for b in bits) / len(bits)
+        return sum(1.0 for b in bits if b) / float(len(bits))
+
+    def _variance(self, q: Dict[str, float]) -> float:
+        vals = list(q.values())
+        mean = sum(vals) / len(vals)
+        var = sum((v - mean) ** 2 for v in vals) / len(vals)
+        return _c01(var / 0.25)
