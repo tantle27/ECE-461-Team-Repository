@@ -54,12 +54,15 @@ def setup_logging() -> None:
         level = logging.INFO
     elif int(val) == 2:
         level = logging.DEBUG
+    else:
+        level = logging.CRITICAL + 1
 
     logging.basicConfig(
         filename=log_file,
         filemode="a",
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        force=True,
     )
 
     logging.info("logging initialized: file=%s level=%s", log_file, logging.getLevelName(level))
