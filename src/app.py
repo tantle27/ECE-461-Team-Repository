@@ -603,9 +603,7 @@ def main() -> int:
                 if cat == "CODE":
                     code_id = persist_context(db_path, ctx, cat)
                 else:
-                    logging.warning(
-                        "code column parsed as %s, skipping: %s", cat, code_url
-                    )
+                    logging.warning("code column parsed as %s, skipping: %s", cat, code_url)
         except Exception as e:
             logging.warning("code persist failed: %s", e)
 
@@ -615,9 +613,7 @@ def main() -> int:
                 if cat == "DATASET":
                     dataset_id = persist_context(db_path, ctx, cat)
                 else:
-                    logging.warning(
-                        "dataset column parsed as %s, skipping: %s", cat, dataset_url
-                    )
+                    logging.warning("dataset column parsed as %s, skipping: %s", cat, dataset_url)
         except Exception as e:
             logging.warning("dataset persist failed: %s", e)
 
@@ -625,6 +621,7 @@ def main() -> int:
             url = (model_url or "").strip()
             if not url:
                 _emit_error_ndjson("unknown", "MODEL")
+                # no success counted for an empty model row
                 continue
 
             category, ctx = _build_context_for_url(url)
@@ -638,9 +635,7 @@ def main() -> int:
                     conn = db.open_db(db_path)
                     try:
                         if dataset_id is not None:
-                            db.link_resources(
-                                conn, model_id, dataset_id, "MODEL_TO_DATASET"
-                            )
+                            db.link_resources(conn, model_id, dataset_id, "MODEL_TO_DATASET")
                         if code_id is not None:
                             db.link_resources(conn, model_id, code_id, "MODEL_TO_CODE")
                         conn.commit()
@@ -649,10 +644,10 @@ def main() -> int:
             else:
                 _emit_error_ndjson(url, category)
 
+            succeeded += 1
+
         except Exception as e:
-            logging.error(
-                "model pipeline failed: url=%s err=%s", model_url, e, exc_info=True
-            )
+            logging.error("model pipeline failed: url=%s err=%s", model_url, e, exc_info=True)
             _emit_error_ndjson(model_url or "unknown", "MODEL")
 
     sys.exit(0 if succeeded == total else 1)

@@ -1,21 +1,34 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
+usage() {
   echo "Usage: $0 {install|test|URL_FILE}"
   echo "  install   Install required Python packages"
   echo "  test      Run unit tests"
-  echo "  URL_FILE  Absolute path to a file with newline-delimited URLs"
+  echo "  URL_FILE  Absolute or relative path to a file with newline-delimited URLs"
+}
+
+if [ "$#" -ne 1 ]; then
+  usage
   exit 1
 fi
 
-# my_log="output.log"  # Define the log file
-if [ "$1" = "install" ]; then
-  pip install -r requirements.txt
-  exit 0
-elif [ "$1" = "test" ]; then
-  python run.py
-  exit $?
-else
-  python3 src/app.py "$1"
-  exit 0
-fi
+case "$1" in
+  install)
+    pip install -r requirements.txt
+    exit $?
+    ;;
+  test)
+    python3 -u run.py
+    exit $?
+    ;;
+  *)
+    url_file="$1"
+    if [[ ! -f "$url_file" ]]; then
+      echo "ERROR: URL file '$url_file' not found." >&2
+      exit 1
+    fi
+    python3 -u src/app.py "$url_file"
+    exit $? 
+    ;;
+esac
