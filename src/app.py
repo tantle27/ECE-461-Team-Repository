@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Literal
+import math
 
 import db
 from handlers import (
@@ -207,7 +208,6 @@ def _build_context_for_url(url: str) -> tuple[Category, RepoContext]:
 def _evaluate_and_persist(
     db_path: Path, rid: int, category: Category, ctx: RepoContext
 ) -> None:
-    import math
 
     if category != "MODEL":
         return
@@ -223,22 +223,20 @@ def _evaluate_and_persist(
     repo_ctx = {**ctx.__dict__, "_ctx_obj": ctx, "category": category}
 
     def _to_01(x: object) -> float:
-        """ to [0,1], treat bad/NaN/inf as 0.0."""
         try:
             v = float(x)
         except Exception:
             return 0.0
-        if not math.isfinite(v):
+        if not math.isfinite(v) or v < 0.0:
             return 0.0
-        if v < 0.0:
-            return 0.0
-        if v > 1.0:
-            return 1.0
-        return v
-
+        return 1.0 if v > 1.0 else v
     scores: Dict[str, float] = {}
     lats_ms: Dict[str, int] = {}
 
+    # start total timer
+    eval_t0 = time.perf_counter_ns()
+
+    # per-metric timings
     for m in metrics:
         t0 = time.perf_counter_ns()
         try:
@@ -252,11 +250,14 @@ def _evaluate_and_persist(
         lats_ms[m.name] = dur_ms
         logging.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, m.name, val, dur_ms)
 
-    t0 = time.perf_counter_ns()
     net = _to_01(evaluator.aggregateScores(scores))
-    net_lat = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
+
+    total_eval_ms = max(1, int((time.perf_counter_ns() - eval_t0) // 1_000_000))
+    sum_metrics_ms = sum(int(v) for v in lats_ms.values())
+    net_lat = max(total_eval_ms, sum_metrics_ms)
+
     logging.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
-                rid, category, net, net_lat)
+                 rid, category, net, net_lat)
 
     conn = db.open_db(db_path)
     try:
@@ -298,8 +299,10 @@ def _evaluate_and_persist(
         conn.commit()
     finally:
         conn.close()
+
     if category == "MODEL":
         _emit_ndjson(ctx, category, scores, net, lats_ms, net_lat)
+
     logging.info("eval done: id=%s metrics=%d", rid, len(scores))
 
 
