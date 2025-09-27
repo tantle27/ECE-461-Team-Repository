@@ -8,15 +8,14 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
+# my_log="output.log"  # Define the log file
 if [ "$1" = "install" ]; then
-  echo "Installing requirements..."
   pip install -r requirements.txt
   exit 0
 elif [ "$1" = "test" ]; then
-  echo "Running tests..."
-  pytest tests/
+  python -m pytest tests/ -vvs --tb=l > /dev/null 2>&1
   exit 0
 else
-  python3 src/app.py $1
+  python3 src/app.py "$1"
   exit 0
 fi
