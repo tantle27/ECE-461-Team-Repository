@@ -248,8 +248,8 @@ class TestHFClientMethods:
 
     def test_get_readme_returns_none_for_not_found(self):
         """Test get_readme returns None when README files are not found."""
-        # Mock _get_text to return None (simulating file not found)
-        with patch.object(self.client, '_get_text', return_value=None):
+        # Patch _text_get to always return None, simulating file not found
+        with patch("src.api.hf_client._text_get", return_value=None):
             result = self.client.get_readme("test-model")
             assert result is None
 
@@ -267,18 +267,20 @@ class TestHFClientMethods:
         mock_info.gated = False
         mock_info.private = False
 
+        mock_info.datasetId = "test-dataset"  # Ensure fallback logic sets correct hf_id
         mock_api.dataset_info.return_value = mock_info
 
+        # Patch _api_dataset_json to return None so the fallback path is used
         with patch.object(self.client, 'api', mock_api):
-            result = self.client.get_dataset_info("test-dataset")
-
-            mock_api.dataset_info.assert_called_once_with("test-dataset")
-            assert result.hf_id == "test-dataset"
-            assert result.card_data == {"license": "apache-2.0"}
-            assert result.tags == ["dataset"]
-            assert result.likes == 50
-            assert result.downloads_30d == 1000
-            assert result.private is False
+            with patch.object(self.client, '_api_dataset_json', return_value=None):
+                result = self.client.get_dataset_info("test-dataset")
+                mock_api.dataset_info.assert_called_once_with("test-dataset")
+                assert getattr(result, 'hf_id', None) == "test-dataset"
+                assert getattr(result, 'card_data', None) == {"license": "apache-2.0"}
+                assert getattr(result, 'tags', None) == ["dataset"]
+                assert getattr(result, 'likes', None) == 50
+                assert getattr(result, 'downloads_30d', None) == 1000
+                assert getattr(result, 'private', None) is False
 
     def test_get_model_readme_method(self):
         """Test get_model_readme convenience method."""

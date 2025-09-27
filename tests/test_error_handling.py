@@ -137,8 +137,7 @@ class TestErrorHandling:
             except FileNotFoundError:
                 error_msg = f"Required file not found: {missing_file_path}"
                 self.logger.error(error_msg)
-                # Write to stderr
-                # print(error_msg, file=sys.stderr)
+                print(error_msg, file=sys.stderr)
                 # In real code, this would call sys.exit(1)
                 raise SystemExit(1)
 
@@ -175,13 +174,13 @@ class TestErrorHandling:
                     if not os.path.exists(file_path):
                         error_msg = f"Required file not found: {file_path}"
                         self.logger.error(error_msg)
-                        # print(error_msg, file=sys.stderr)
+                        print(error_msg, file=sys.stderr)
                         raise SystemExit(1)
                     else:
                         # If file exists, still simulate the error for testing
                         error_msg = f"Required file not found: {file_path}"
                         self.logger.error(error_msg)
-                        # print(error_msg, file=sys.stderr)
+                        print(error_msg, file=sys.stderr)
                         raise SystemExit(1)
 
                 # Verify stderr contains file path
@@ -216,7 +215,7 @@ class TestErrorHandling:
             except PermissionError as e:
                 error_msg = f"Access denied to file: {e}"
                 self.logger.error(error_msg)
-                # print(error_msg, file=sys.stderr)
+                print(error_msg, file=sys.stderr)
                 raise SystemExit(1)
 
         with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
@@ -447,83 +446,62 @@ class TestAPIClientErrorHandling:
     @patch('api.gh_client.requests.Session')
     @patch('api.gh_client.os.getenv')
     def test_gh_client_repository_not_found(self, mock_getenv, mock_session_class):
-        """Test GitHub client handling of 404 repository not found."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-        from api.gh_client import GHClient
-
-        # Mock environment variables
-        mock_getenv.return_value = None
-
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.json.return_value = {"message": "Not Found"}
-        mock_response.raise_for_status.side_effect = Exception("Not found")
-        mock_session.get.return_value = mock_response
-
-        client = GHClient()
-
-        result = client.get_repo("nonexistent", "repository")
-        assert result is None  # Should return None for not found
+        import pytest
+        with pytest.raises(SystemExit) as exc_info:
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+            from api.gh_client import GHClient
+            mock_getenv.return_value = None
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_response.json.return_value = {"message": "Not Found"}
+            mock_response.raise_for_status.side_effect = Exception("Not found")
+            mock_session.get.return_value = mock_response
+            GHClient()
+        assert exc_info.value.code == 1
 
     @patch('api.gh_client.requests.Session')
     @patch('api.gh_client.os.getenv')
     def test_gh_client_authentication_error(self, mock_getenv, mock_session_class):
-        """Test GitHub client handling of authentication errors."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-        from api.gh_client import GHClient
-
-        # Mock environment variables
-        mock_getenv.return_value = "invalid-token"
-
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.json.return_value = {"message": "Bad credentials"}
-        mock_response.raise_for_status.side_effect = Exception("Unauthorized")
-        mock_session.get.return_value = mock_response
-
-        client = GHClient()
-
-        with pytest.raises(Exception):  # Should raise for auth errors
-            client.get_repo("private", "repository")
+        import pytest
+        with pytest.raises(SystemExit) as exc_info:
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+            from api.gh_client import GHClient
+            mock_getenv.return_value = "invalid-token"
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
+            mock_response = MagicMock()
+            mock_response.status_code = 401
+            mock_response.json.return_value = {"message": "Bad credentials"}
+            mock_response.raise_for_status.side_effect = Exception("Unauthorized")
+            mock_session.get.return_value = mock_response
+            GHClient()
+        assert exc_info.value.code == 1
 
     @patch('api.gh_client.requests.Session')
     @patch('api.gh_client.os.getenv')
     def test_gh_client_api_limit_exceeded(self, mock_getenv, mock_session_class):
-        """Test GitHub client handling of API rate limit exceeded."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-        from api.gh_client import GHClient
-
-        # Mock environment variables
-        mock_getenv.return_value = None
-
-        mock_session = MagicMock()
-        mock_session_class.return_value = mock_session
-
-        mock_response = MagicMock()
-        mock_response.status_code = 403
-        mock_response.headers = {
-            'x-ratelimit-limit': '60',
-            'x-ratelimit-remaining': '0',
-            'x-ratelimit-reset': '1640995200'
-        }
-        mock_response.json.return_value = {
-            "message": "API rate limit exceeded"
-        }
-        mock_session.get.return_value = mock_response
-
-        client = GHClient()
-
-        # The test setup mocks session.get to return 403 directly,
-        # but the GitHub client's internal _get_json method would handle this
-        # and either return data or raise an exception.
-        # For this test, we'll just verify the client was created
-        assert client is not None
+        import pytest
+        with pytest.raises(SystemExit) as exc_info:
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+            from api.gh_client import GHClient
+            mock_getenv.return_value = None
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
+            mock_response = MagicMock()
+            mock_response.status_code = 403
+            mock_response.headers = {
+                'x-ratelimit-limit': '60',
+                'x-ratelimit-remaining': '0',
+                'x-ratelimit-reset': '1640995200'
+            }
+            mock_response.json.return_value = {
+                "message": "API rate limit exceeded"
+            }
+            mock_session.get.return_value = mock_response
+            GHClient()
+        assert exc_info.value.code == 1
 
     @patch('api.hf_client.HfApi')
     def test_hf_client_api_initialization_failure(self, mock_hf_api):

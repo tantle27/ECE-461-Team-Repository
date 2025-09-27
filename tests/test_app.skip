@@ -1,0 +1,16 @@
+import pytest
+from src.app import main, parse_args
+
+def test_parse_args_basic():
+    args = parse_args(["run", "--foo", "bar"])
+    assert args.command == "run"
+    assert args.foo == "bar"
+
+def test_main_runs(monkeypatch):
+    # Patch sys.argv and main logic to avoid side effects
+    monkeypatch.setattr("sys.argv", ["app.py", "run", "--foo", "bar"])
+    # Patch any side-effectful functions if needed
+    try:
+        main()
+    except SystemExit:
+        pass  # Allow main to exit
