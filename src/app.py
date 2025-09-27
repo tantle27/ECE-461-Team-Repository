@@ -21,6 +21,7 @@ from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 import json
 from typing import Optional
+
 Category = Literal["MODEL", "DATASET", "CODE"]
 
 
@@ -45,15 +46,29 @@ def _validate_log_file_env() -> str:
     # Check basic write access
     if not os.access(p, os.W_OK):
         sys.exit(1)
+ 
+    # Generate a unique random number for this test
+    random_number = os.urandom(64).hex()
 
-    # Try to open for append and write a test byte, then remove it
+    # Try to log a test message to ensure logger compatibility
     try:
-        with open(p, "a+b") as f:
-            pos = f.tell()
-            f.write(b"\0")
-            f.flush()
-            f.seek(pos)
-            f.truncate()
+        logging.basicConfig(
+            filename=log_file,
+            filemode="a",
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            force=True,
+        )
+        logging.info(f"Logger test entry for validation: {random_number}")
+    except Exception:
+        sys.exit(1)
+
+    # Validate that the log entry was written
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+            found = any(f"Logger test entry for validation: {random_number}" in line for line in f)
+        if not found:
+            sys.exit(1)
     except Exception:
         sys.exit(1)
 
@@ -101,7 +116,9 @@ def setup_logging() -> None:
         force=True,
     )
 
-    logging.info("logging initialized: file=%s level=%s", log_file, logging.getLevelName(level))
+    logging.info(
+        "logging initialized: file=%s level=%s", log_file, logging.getLevelName(level)
+    )
 
 
 def _require_valid_github_token() -> str:
@@ -124,6 +141,7 @@ def _require_valid_github_token() -> str:
 
 
 # ---------------- CLI + Paths ----------------
+
 
 def read_urls(path: str) -> list[tuple[str, str, str]]:
     """Read file of CSV triples: code,dataset,model (blanks allowed)."""
@@ -188,8 +206,11 @@ def _user_cache_base() -> Path:
         return home / "Library" / "Application Support" / "acme-cli"
     if sysname == "Windows":
         base = os.environ.get("APPDATA")
-        return Path(base) / "acme-cli" if base else \
-            home / "AppData" / "Roaming" / "acme-cli"
+        return (
+            Path(base) / "acme-cli"
+            if base
+            else home / "AppData" / "Roaming" / "acme-cli"
+        )
     xdg = os.environ.get("XDG_CACHE_HOME")
     return Path(xdg) / "acme-cli" if xdg else home / ".cache" / "acme-cli"
 
@@ -199,8 +220,9 @@ def _resolve_db_path() -> Path:
     if env_db:
         return Path(env_db)
     proj = _find_project_root(Path.cwd())
-    return proj / ".acme" / "state.sqlite" if proj else \
-        _user_cache_base() / "state.sqlite"
+    return (
+        proj / ".acme" / "state.sqlite" if proj else _user_cache_base() / "state.sqlite"
+    )
 
 
 def _ensure_path_secure(p: Path) -> None:
@@ -214,6 +236,7 @@ def _ensure_path_secure(p: Path) -> None:
 
 
 # ---------------- Pipeline ----------------
+
 
 def _ctx_summary(ctx: RepoContext) -> dict:
     return {
@@ -265,6 +288,7 @@ def _evaluate_and_persist(
         if not math.isfinite(v) or v < 0.0:
             return 0.0
         return 1.0 if v > 1.0 else v
+
     scores: Dict[str, float] = {}
     lats_ms: Dict[str, int] = {}
 
@@ -291,8 +315,9 @@ def _evaluate_and_persist(
     sum_metrics_ms = sum(int(v) for v in lats_ms.values())
     net_lat = max(total_eval_ms, sum_metrics_ms)
 
-    logging.info("[SCORE] id=%s category=%s net=%.3f (%d ms)",
-                 rid, category, net, net_lat)
+    logging.info(
+        "[SCORE] id=%s category=%s net=%.3f (%d ms)", rid, category, net, net_lat
+    )
 
     conn = db.open_db(db_path)
     try:
@@ -301,11 +326,9 @@ def _evaluate_and_persist(
 
         for m in metrics:
             aux = {}
-            if (m.name == "CodeQuality"
-                    and "_code_quality_llm_parts" in repo_ctx):
+            if m.name == "CodeQuality" and "_code_quality_llm_parts" in repo_ctx:
                 aux["llm_parts"] = repo_ctx["_code_quality_llm_parts"]
-            if (m.name == "DatasetQuality"
-                    and "_dataset_quality_llm_parts" in repo_ctx):
+            if m.name == "DatasetQuality" and "_dataset_quality_llm_parts" in repo_ctx:
                 aux["llm_parts"] = repo_ctx["_dataset_quality_llm_parts"]
             if "_metric_errors" in repo_ctx and m.name in repo_ctx["_metric_errors"]:
                 aux["error"] = repo_ctx["_metric_errors"][m.name]
@@ -349,15 +372,17 @@ def _canon_for(ctx: RepoContext, category: Category) -> str:
     return RepoContext._canon_code_key(ctx)
 
 
-def persist_context(
-    db_path: Path, ctx: RepoContext, category: Category
-) -> int:
+def persist_context(db_path: Path, ctx: RepoContext, category: Category) -> int:
     canon = _canon_for(ctx, category)
     if not canon:
         raise ValueError("Cannot derive canonical key")
 
-    logging.info("persist: category=%s key=%s url=%s", category, canon,
-                (ctx.hf_id or ctx.gh_url or ctx.url or ""))
+    logging.info(
+        "persist: category=%s key=%s url=%s",
+        category,
+        canon,
+        (ctx.hf_id or ctx.gh_url or ctx.url or ""),
+    )
 
     base = {
         "url": ctx.url,
@@ -384,20 +409,27 @@ def persist_context(
         "api_errors": ctx.api_errors,
     }
 
-    files = [{
-        "path": str(fi.path),
-        "ext": fi.ext,
-        "size_bytes": int(fi.size_bytes or 0),
-    } for fi in ctx.files]
+    files = [
+        {
+            "path": str(fi.path),
+            "ext": fi.ext,
+            "size_bytes": int(fi.size_bytes or 0),
+        }
+        for fi in ctx.files
+    ]
 
     conn = db.open_db(db_path)
     try:
         rid = db.upsert_resource(
-            conn, category=category, canonical_key=canon, base=base,
+            conn,
+            category=category,
+            canonical_key=canon,
+            base=base,
             files=files,
         )
-        logging.info("persisted: id=%s category=%s files=%d",
-                    rid, category, len(ctx.files or []))
+        logging.info(
+            "persisted: id=%s category=%s files=%d", rid, category, len(ctx.files or [])
+        )
 
         if category == "MODEL":
             # datasets
@@ -409,8 +441,10 @@ def persist_context(
                     conn, category="DATASET", canonical_key=ds_key
                 )
                 if ds_id is None:
-                    ds_url = getattr(ds, "url", None) or \
-                        f"https://huggingface.co/datasets/{ds_key}"
+                    ds_url = (
+                        getattr(ds, "url", None)
+                        or f"https://huggingface.co/datasets/{ds_key}"
+                    )
                     try:
                         ds_ctx = build_dataset_context(ds_url)
                         ds_base = {
@@ -419,8 +453,7 @@ def persist_context(
                             "gh_url": ds_ctx.gh_url,
                             "host": ds_ctx.host,
                             "repo_path": (
-                                str(ds_ctx.repo_path)
-                                if ds_ctx.repo_path else None
+                                str(ds_ctx.repo_path) if ds_ctx.repo_path else None
                             ),
                             "readme_text": ds_ctx.readme_text,
                             "card_data": ds_ctx.card_data,
@@ -440,16 +473,20 @@ def persist_context(
                             "cache_hits": ds_ctx.cache_hits,
                             "api_errors": ds_ctx.api_errors,
                         }
-                        ds_files = [{
-                            "path": str(fi.path),
-                            "ext": fi.ext,
-                            "size_bytes": int(fi.size_bytes or 0),
-                        } for fi in ds_ctx.files]
+                        ds_files = [
+                            {
+                                "path": str(fi.path),
+                                "ext": fi.ext,
+                                "size_bytes": int(fi.size_bytes or 0),
+                            }
+                            for fi in ds_ctx.files
+                        ]
                         ds_id = db.upsert_resource(
-                            conn, category="DATASET",
-                            canonical_key=RepoContext._canon_dataset_key(
-                                ds_ctx),
-                            base=ds_base, files=ds_files,
+                            conn,
+                            category="DATASET",
+                            canonical_key=RepoContext._canon_dataset_key(ds_ctx),
+                            base=ds_base,
+                            files=ds_files,
                         )
                     except Exception as e:
                         ctx.fetch_logs.append(
@@ -469,8 +506,9 @@ def persist_context(
                     conn, category="CODE", canonical_key=code_key
                 )
                 if code_id is None:
-                    code_url = getattr(code, "gh_url", None) or \
-                        getattr(code, "url", None)
+                    code_url = getattr(code, "gh_url", None) or getattr(
+                        code, "url", None
+                    )
                     if code_url:
                         try:
                             code_ctx = build_code_context(code_url)
@@ -481,7 +519,8 @@ def persist_context(
                                 "host": code_ctx.host,
                                 "repo_path": (
                                     str(code_ctx.repo_path)
-                                    if code_ctx.repo_path else None
+                                    if code_ctx.repo_path
+                                    else None
                                 ),
                                 "readme_text": code_ctx.readme_text,
                                 "card_data": code_ctx.card_data,
@@ -489,8 +528,7 @@ def persist_context(
                                 "model_index": code_ctx.model_index,
                                 "tags": code_ctx.tags,
                                 "downloads_30d": code_ctx.downloads_30d,
-                                "downloads_all_time":
-                                    code_ctx.downloads_all_time,
+                                "downloads_all_time": code_ctx.downloads_all_time,
                                 "likes": code_ctx.likes,
                                 "created_at": code_ctx.created_at,
                                 "last_modified": code_ctx.last_modified,
@@ -502,16 +540,20 @@ def persist_context(
                                 "cache_hits": code_ctx.cache_hits,
                                 "api_errors": code_ctx.api_errors,
                             }
-                            code_files = [{
-                                "path": str(fi.path),
-                                "ext": fi.ext,
-                                "size_bytes": int(fi.size_bytes or 0),
-                            } for fi in code_ctx.files]
+                            code_files = [
+                                {
+                                    "path": str(fi.path),
+                                    "ext": fi.ext,
+                                    "size_bytes": int(fi.size_bytes or 0),
+                                }
+                                for fi in code_ctx.files
+                            ]
                             code_id = db.upsert_resource(
-                                conn, category="CODE",
-                                canonical_key=RepoContext._canon_code_key(
-                                    code_ctx),
-                                base=code_base, files=code_files,
+                                conn,
+                                category="CODE",
+                                canonical_key=RepoContext._canon_code_key(code_ctx),
+                                base=code_base,
+                                files=code_files,
                             )
                         except Exception as e:
                             ctx.fetch_logs.append(
@@ -523,14 +565,14 @@ def persist_context(
                     db.link_resources(conn, rid, code_id, "MODEL_TO_CODE")
 
         conn.commit()
-        logging.info("persist done: id=%s category=%s key=%s",
-                    rid, category, canon)
+        logging.info("persist done: id=%s category=%s key=%s", rid, category, canon)
         return rid
     finally:
         conn.close()
 
 
 # ---------------- Entry ----------------
+
 
 def main() -> int:
     if len(sys.argv) != 2:
@@ -554,7 +596,9 @@ def main() -> int:
                 if cat == "CODE":
                     code_id = persist_context(db_path, ctx, cat)
                 else:
-                    logging.warning("code column parsed as %s, skipping: %s", cat, code_url)
+                    logging.warning(
+                        "code column parsed as %s, skipping: %s", cat, code_url
+                    )
         except Exception as e:
             logging.warning("code persist failed: %s", e)
 
@@ -564,7 +608,9 @@ def main() -> int:
                 if cat == "DATASET":
                     dataset_id = persist_context(db_path, ctx, cat)
                 else:
-                    logging.warning("dataset column parsed as %s, skipping: %s", cat, dataset_url)
+                    logging.warning(
+                        "dataset column parsed as %s, skipping: %s", cat, dataset_url
+                    )
         except Exception as e:
             logging.warning("dataset persist failed: %s", e)
 
@@ -585,7 +631,9 @@ def main() -> int:
                     conn = db.open_db(db_path)
                     try:
                         if dataset_id is not None:
-                            db.link_resources(conn, model_id, dataset_id, "MODEL_TO_DATASET")
+                            db.link_resources(
+                                conn, model_id, dataset_id, "MODEL_TO_DATASET"
+                            )
                         if code_id is not None:
                             db.link_resources(conn, model_id, code_id, "MODEL_TO_CODE")
                         conn.commit()
@@ -595,30 +643,44 @@ def main() -> int:
                 _emit_error_ndjson(url, category)
 
         except Exception as e:
-            logging.error("model pipeline failed: url=%s err=%s", model_url, e, exc_info=True)
+            logging.error(
+                "model pipeline failed: url=%s err=%s", model_url, e, exc_info=True
+            )
             _emit_error_ndjson(model_url or "unknown", "MODEL")
 
     sys.exit(0 if succeeded == total else 1)
 
 
 def _emit_error_ndjson(name_hint: str = "unknown", category: str = "MODEL") -> None:
-    name = (name_hint.rstrip("/").split("/")[-1] or "unknown") if name_hint else "unknown"
+    name = (
+        (name_hint.rstrip("/").split("/")[-1] or "unknown") if name_hint else "unknown"
+    )
     nd = {
         "name": name,
         "category": category,
-        "net_score": 0.0, "net_score_latency": 1,
-        "ramp_up_time": 0.0, "ramp_up_time_latency": 1,
-        "bus_factor": 0.0, "bus_factor_latency": 1,
-        "performance_claims": 0.0, "performance_claims_latency": 1,
-        "license": 0.0, "license_latency": 1,
+        "net_score": 0.0,
+        "net_score_latency": 1,
+        "ramp_up_time": 0.0,
+        "ramp_up_time_latency": 1,
+        "bus_factor": 0.0,
+        "bus_factor_latency": 1,
+        "performance_claims": 0.0,
+        "performance_claims_latency": 1,
+        "license": 0.0,
+        "license_latency": 1,
         "size_score": {
-            "raspberry_pi": 0.0, "jetson_nano": 0.0,
-            "desktop_pc": 0.0, "aws_server": 0.0
+            "raspberry_pi": 0.0,
+            "jetson_nano": 0.0,
+            "desktop_pc": 0.0,
+            "aws_server": 0.0,
         },
         "size_score_latency": 1,
-        "dataset_and_code_score": 0.0, "dataset_and_code_score_latency": 1,
-        "dataset_quality": 0.0, "dataset_quality_latency": 1,
-        "code_quality": 0.0, "code_quality_latency": 1,
+        "dataset_and_code_score": 0.0,
+        "dataset_and_code_score_latency": 1,
+        "dataset_quality": 0.0,
+        "dataset_quality_latency": 1,
+        "code_quality": 0.0,
+        "code_quality_latency": 1,
     }
     print(json.dumps(nd, separators=(",", ":"), ensure_ascii=False), flush=True)
 
