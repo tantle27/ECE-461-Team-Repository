@@ -145,7 +145,6 @@ def _attach_explicit_links(
     tag them as explicit, and attach to the model context so metrics see them.
     """
     if code_url:
-        print(f"Attaching explicit code link: {code_url}", file=sys.stderr)
         try:
             cat_c, code_ctx = _build_context_for_url(code_url)
             if cat_c == "CODE" and code_ctx:
@@ -155,7 +154,6 @@ def _attach_explicit_links(
             model_ctx.fetch_logs.append(f"explicit code attach failed: {e}")
 
     if dataset_url:
-        print(f"Attaching explicit dataset link: {dataset_url}", file=sys.stderr)
         try:
             cat_d, ds_ctx = _build_context_for_url(dataset_url)
             if cat_d == "DATASET" and ds_ctx:

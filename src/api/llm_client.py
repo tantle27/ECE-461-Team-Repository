@@ -39,7 +39,7 @@ def _clamp_json_object(raw: Optional[str]) -> Dict[str, Any]:
 class LLMClient:
     def __init__(self) -> None:
         self.provider: Optional[str] = None
-        self.api_key: Optional[str] = (os.getenv("GENAI_API_KEY") or "").strip() or None
+        self.api_key: Optional[str] = (os.getenv("GEN_AI_STUDIO_API_KEY") or "").strip() or None
         if self.api_key:
             self.provider = "purdue_genai"
             self._genai_url = os.getenv(
@@ -84,7 +84,7 @@ class LLMClient:
         Calls Purdue GenAI OpenAI-compatible /chat/completions.
         We keep stream=False to simplify parsing.
         """
-        api_key = os.environ["GENAI_API_KEY"]
+        api_key = os.environ["GEN_AI_STUDIO_API_KEY"]
         url = self._genai_url
         model = self._genai_model
 
