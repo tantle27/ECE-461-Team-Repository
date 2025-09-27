@@ -217,9 +217,9 @@ class DatasetQualityMetric(BaseMetric):
     def _combine_heuristics(
         self,
         *args,
-        has_validation: float | None = None,
-        data_diversity: float | None = None,
-        data_completeness: float | None = None,
+        has_validation: Optional[float] = None,
+        data_diversity: Optional[float] = None,
+        data_completeness: Optional[float] = None,
     ) -> float:
         if args and (
             has_validation is None

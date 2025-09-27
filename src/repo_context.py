@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Iterable, Optional
+from typing import Any, Final, Iterable, Optional, List, Dict
 
 from api.gh_client import normalize_and_verify_github
 from api.hf_client import github_urls_from_readme
@@ -13,7 +13,6 @@ import re
 @dataclass(frozen=True)
 class FileInfo:
     """Lightweight descriptor for a file in the local checkout."""
-
     path: Path
     size_bytes: int
     ext: str
@@ -31,18 +30,19 @@ class RepoContext:
     hf_id: Optional[str] = None
     gh_url: Optional[str] = None
     host: Optional[str] = None
+
     # Local checkout
     repo_path: Optional[Path] = None
-    files: list[FileInfo] = field(default_factory=list)
+    files: List[FileInfo] = field(default_factory=list)
 
     # Extracted metadata
     readme_text: Optional[str] = None
-    config_json: Optional[dict[str, Any]] = None
-    model_index: Optional[dict[str, Any]] = None
+    config_json: Optional[Dict[str, Any]] = None
+    model_index: Optional[Dict[str, Any]] = None
 
     # Hugging Face metadata
-    card_data: Optional[dict[str, Any]] = None
-    tags: list[str] = field(default_factory=list)
+    card_data: Optional[Dict[str, Any]] = None
+    tags: List[str] = field(default_factory=list)
     downloads_30d: Optional[int] = None
     downloads_all_time: Optional[int] = None
     likes: Optional[int] = None
@@ -52,15 +52,15 @@ class RepoContext:
     private: Optional[bool] = None
 
     # GitHub metadata
-    contributors: list[dict[str, Any]] = field(default_factory=list)
-    commit_history: list[dict[str, Any]] = field(default_factory=list)
+    contributors: List[Dict[str, Any]] = field(default_factory=list)
+    commit_history: List[Dict[str, Any]] = field(default_factory=list)
 
     # Linkage (for models)
-    linked_datasets: list["RepoContext"] = field(default_factory=list)
-    linked_code: list["RepoContext"] = field(default_factory=list)
+    linked_datasets: List["RepoContext"] = field(default_factory=list)
+    linked_code: List["RepoContext"] = field(default_factory=list)
 
     # Diagnostics
-    fetch_logs: list[str] = field(default_factory=list)
+    fetch_logs: List[str] = field(default_factory=list)
     cache_hits: int = 0
     api_errors: int = 0
 
@@ -86,7 +86,9 @@ class RepoContext:
         Prefer normalized hf_id ('org/name'); else parse from URL; else URL.
         """
         if ctx.hf_id:
-            return ctx.hf_id.lower().removeprefix("datasets/")
+            # avoid .removeprefix (3.9+); do manual equivalent
+            s = ctx.hf_id
+            return s[len("datasets/"):].lower() if s.lower().startswith("datasets/") else s.lower()
         if ctx.url:
             parsed = UrlRouter().parse(ctx.url)
             if parsed.type is UrlType.DATASET and parsed.hf_id:
@@ -127,7 +129,7 @@ class RepoContext:
 
     def total_weight_gb(self) -> float:
         """Total weight size in GiB."""
-        return self.total_weight_bytes() / (1000**3)
+        return self.total_weight_bytes() / (1000.0 ** 3)
 
     def add_files(self, paths: Iterable[Path]) -> None:
         """
@@ -139,11 +141,8 @@ class RepoContext:
         for p in paths:
             if p in seen:
                 continue
-            ext = (
-                p.suffix[1:].lower()
-                if p.suffix.startswith(".")
-                else p.suffix.lower()
-            )
+            sfx = p.suffix
+            ext = sfx[1:].lower() if sfx.startswith(".") else sfx.lower()
             self.files.append(FileInfo(path=p, size_bytes=0, ext=ext))
 
     def link_dataset(self, ds_ctx: "RepoContext") -> None:
@@ -151,9 +150,7 @@ class RepoContext:
         key = self._canon_dataset_key(ds_ctx)
         if not key:
             return
-        if any(
-            self._canon_dataset_key(c) == key for c in self.linked_datasets
-        ):
+        if any(self._canon_dataset_key(c) == key for c in self.linked_datasets):
             return
         self.linked_datasets.append(ds_ctx)
 
@@ -166,13 +163,11 @@ class RepoContext:
             return
         self.linked_code.append(code_ctx)
 
-    # inside RepoContext
     def hydrate_code_links(self, hf_client, gh_client) -> None:
+        """Fill in gh_url/link_code from HF README/card hints."""
         if self.gh_url:
             return
-        url = find_code_repo_url(
-            hf_client, gh_client, self, prefer_readme=True
-        )
+        url = find_code_repo_url(hf_client, gh_client, self, prefer_readme=True)
         if not url:
             return
         self.gh_url = url
@@ -182,7 +177,7 @@ class RepoContext:
 def find_code_repo_url(
     hf_client, gh_client, ctx: RepoContext, *, prefer_readme: bool = True
 ) -> Optional[str]:
-    candidates: list[str] = []
+    candidates: List[str] = []
     if ctx.readme_text and ctx.hf_id:
         candidates.extend(
             github_urls_from_readme(
@@ -194,13 +189,10 @@ def find_code_repo_url(
         p = ctx.hf_id.replace("datasets/", "")
         if "/" in p:
             org, name = p.split("/", 1)
-            guess = f"https://github.com/{org}/{_norm(name)}".replace(
-                "--", "-"
-            )
+            guess = f"https://github.com/{org}/{_norm(name)}".replace("--", "-")
             candidates.append(guess)
 
     verified = normalize_and_verify_github(gh_client, candidates)
-
     if not verified:
         return None
 
@@ -213,14 +205,14 @@ def find_code_repo_url(
                 return u
 
     # tie-break: prefer same owner + best version
-    p = ctx.hf_id.replace("datasets/", "")
+    p = ctx.hf_id.replace("datasets/", "") if ctx.hf_id else ""
     hf_org = p.split("/", 1)[0].lower() if "/" in p else p.lower()
 
     def ver_score(u: str) -> float:
         repo = u.rsplit("/", 1)[-1]
         return _ver_bonus(ctx.hf_id, repo)
 
-    same_owner = [u for u in verified if f"/{hf_org}/" in u.lower()]
+    same_owner = [u for u in verified if f"/{hf_org}/" in u.lower()] if hf_org else []
     if same_owner:
         same_owner.sort(key=ver_score, reverse=True)
         return same_owner[0]
@@ -238,28 +230,20 @@ def _norm(s: str) -> str:
     for pre in ("hf-", "huggingface-", "the-"):
         if s.startswith(pre):
             s = s[len(pre):]
-    for suf in (
-        "-dev",
-        "-devkit",
-        "-main",
-        "-release",
-        "-project",
-        "-repo",
-        "-code",
-    ):
+    for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo", "-code"):
         if s.endswith(suf):
             s = s[: -len(suf)]
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s
 
 
-def _ver_bonus(hf_id: str | None, repo_name: str | None) -> float:
+def _ver_bonus(hf_id: Optional[str], repo_name: Optional[str]) -> float:
     """
     Small score bonus based on version similarity between HF id and GH repo
     name. Exact match → +0.30, off-by-one segment → +0.10, otherwise -0.20.
     """
 
-    def parse_vers(txt: str | None) -> list[tuple[int, ...]]:
+    def parse_vers(txt: Optional[str]) -> List[tuple]:
         if not txt:
             return []
         return [
@@ -272,7 +256,7 @@ def _ver_bonus(hf_id: str | None, repo_name: str | None) -> float:
     if not hv or not rv:
         return 0.0
 
-    def dist(a: tuple[int, ...], b: tuple[int, ...]) -> int:
+    def dist(a: tuple, b: tuple) -> int:
         n = max(len(a), len(b))
         ap = a + (0,) * (n - len(a))
         bp = b + (0,) * (n - len(b))

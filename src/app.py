@@ -19,7 +19,7 @@ from net_scorer import _emit_ndjson
 from repo_context import RepoContext
 from url_router import UrlRouter, UrlType
 import json
-
+from typing import Optional
 Category = Literal["MODEL", "DATASET", "CODE"]
 
 
@@ -134,7 +134,7 @@ def read_urls(path: str) -> list[tuple[str, str, str]]:
     return rows
 
 
-def _find_project_root(start: Path) -> Path | None:
+def _find_project_root(start: Path) -> Optional[Path]:
     cur = start.resolve()
     for _ in range(10):
         if (cur / ".git").exists():

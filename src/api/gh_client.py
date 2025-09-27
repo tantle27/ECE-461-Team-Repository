@@ -7,7 +7,7 @@ import re
 import time
 import logging
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, List, Dict, Union
 from urllib.parse import urljoin
 
 import requests
@@ -22,9 +22,9 @@ from urllib3.util.retry import Retry
 class GHRepoInfo:
     owner: str
     repo: str
-    private: bool | None
-    default_branch: str | None
-    description: str | None
+    private: Optional[bool]
+    default_branch: Optional[str]
+    description: Optional[str]
 
 
 DEFAULT_TIMEOUT = 30  # seconds
@@ -63,8 +63,8 @@ _GITHUB_REPO_RE = re.compile(r"https?://github\.com/([-.\w]+)/([-.\w]+)", re.I)
 def normalize_and_verify_github(
     gh: "GHClient",
     urls: Iterable[str],
-) -> list[str]:
-    valid: list[str] = []
+) -> List[str]:
+    valid: List[str] = []
     for u in urls:
         m = _GITHUB_REPO_RE.match(u or "")
         if not m:
@@ -73,6 +73,7 @@ def normalize_and_verify_github(
         info = gh.get_repo(owner, repo)
         if info is not None:
             valid.append(f"https://github.com/{owner}/{repo}")
+    # de-dupe preserving order
     return list(dict.fromkeys(valid))
 
 
@@ -101,9 +102,8 @@ def _make_session(token: Optional[str]) -> requests.Session:
 
 
 def _sleep_until_reset(resp: requests.Response) -> None:
-    remaining, reset = resp.headers.get("X-RateLimit-Remaining"), resp.headers.get(
-        "X-RateLimit-Reset"
-    )
+    remaining = resp.headers.get("X-RateLimit-Remaining")
+    reset = resp.headers.get("X-RateLimit-Reset")
     if remaining == "0" and reset is not None:
         try:
             delay = max(0, int(reset) - int(time.time())) + random.uniform(0.25, 0.75)
@@ -138,7 +138,6 @@ class GHClient:
             logging.error(
                 "GHClient initialization failed: GITHUB_TOKEN is missing or invalid format."
             )
-            # print("Error: GITHUB_TOKEN is missing or invalid format.", file=sys.stderr)
             sys.exit(1)
         self._http = _make_session(token)
         # Check token validity by making a call to GitHub API
@@ -149,27 +148,28 @@ class GHClient:
                     "GHClient initialization failed: GITHUB_TOKEN is not valid (status=%d).",
                     resp.status_code,
                 )
-                # print("Error: GITHUB_TOKEN is not valid.", file=sys.stderr)
                 sys.exit(1)
         except Exception as e:
             logging.error(
                 "GHClient initialization failed: Exception during token check: %s", e
             )
-            # print("Error: Could not verify GITHUB_TOKEN.", file=sys.stderr)
             sys.exit(1)
-        self._etag_cache: dict[str, str] = {}
+        self._etag_cache: Dict[str, str] = {}
         logging.debug(
             "GHClient initialized (token=%s)", "present" if token else "absent"
         )
 
     @staticmethod
     def _is_token_valid(token: str) -> bool:
-        # Basic check: GitHub tokens usually start with 'ghp_' and are 40+ chars
-        return token.startswith("ghp_") and len(token) >= 40
+        # Accept common formats: legacy 'ghp_' (classic) or modern 'github_pat_'
+        return (
+            (token.startswith("ghp_") and len(token) >= 40)
+            or token.startswith("github_pat_")
+        )
 
     # -------- public --------
 
-    def get_repo(self, owner: str, repo: str) -> GHRepoInfo | None:
+    def get_repo(self, owner: str, repo: str) -> Optional[GHRepoInfo]:
         data = self._get_json(f"/repos/{owner}/{repo}")
         if data is None:
             logging.debug("get_repo: %s/%s -> not found or not modified", owner, repo)
@@ -183,7 +183,7 @@ class GHClient:
             description=data.get("description"),
         )
 
-    def get_readme_markdown(self, owner: str, repo: str) -> str | None:
+    def get_readme_markdown(self, owner: str, repo: str) -> Optional[str]:
         data = self._get_json(f"/repos/{owner}/{repo}/readme")
         if not data or "download_url" not in data:
             logging.debug("get_readme_markdown: no readme for %s/%s", owner, repo)
@@ -198,8 +198,8 @@ class GHClient:
         repo: str,
         *,
         max_pages: int = 3,
-    ) -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
+    ) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
         page = 1
         while page <= max_pages:
             logging.debug("list_contributors: page %d for %s/%s", page, owner, repo)
@@ -208,7 +208,12 @@ class GHClient:
             )
             if not batch:
                 break
-            items.extend(batch)
+            # _get_json returns Union[dict, list, None]. We expect a list here:
+            if isinstance(batch, list):
+                items.extend(batch)
+            else:
+                # Unexpected shape; stop gracefully.
+                break
             if len(batch) < 100:
                 break
             page += 1
@@ -218,7 +223,7 @@ class GHClient:
     # -------- internals --------
 
     def _github_get(self, url: str, *, use_etag: bool = True) -> requests.Response:
-        headers: dict[str, str] = {}
+        headers: Dict[str, str] = {}
         if use_etag:
             etag = self._etag_cache.get(_etag_key(url))
             if etag:
@@ -253,14 +258,14 @@ class GHClient:
 
         return resp
 
-    def _get_text_absolute(self, url: str) -> str | None:
+    def _get_text_absolute(self, url: str) -> Optional[str]:
         resp = self._github_get(url, use_etag=True)
         if resp.status_code in (304, 404):
             return None
         resp.raise_for_status()
         return resp.text
 
-    def _get_json(self, path: str) -> dict | list | None:
+    def _get_json(self, path: str) -> Optional[Union[Dict[str, Any], List[Any]]]:
         url = urljoin("https://api.github.com", path)
         resp = self._github_get(url, use_etag=True)
         if resp.status_code in (304, 404):

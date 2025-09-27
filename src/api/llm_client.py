@@ -2,7 +2,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import requests
 
@@ -10,13 +10,13 @@ import requests
 @dataclass
 class LLMResult:
     ok: bool
-    data: Dict[str, Any] | None
-    raw_text: str | None
-    error: str | None
+    data: Optional[Dict[str, Any]]
+    raw_text: Optional[str]
+    error: Optional[str]
     latency_ms: int
 
 
-def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
+def _clamp_json_object(raw: Optional[str]) -> Dict[str, Any]:
     if not raw:
         return {}
     try:
@@ -25,8 +25,8 @@ def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
         # Sometimes models wrap JSON in code fences — strip and retry.
         s = raw.strip()
         if s.startswith("```"):
-            s = s.strip("`")
-            # remove possible "json" language hint
+            # remove surrounding backticks and optional "json" hint
+            s = s.strip("`").lstrip()
             if s.lower().startswith("json"):
                 s = s[4:]
         s = s.strip()
@@ -38,10 +38,8 @@ def _clamp_json_object(raw: str | None) -> Dict[str, Any]:
 
 class LLMClient:
     def __init__(self) -> None:
-        self.provider: str | None = None
-        self.api_key: str | None = (
-            os.getenv("GENAI_API_KEY") or ""
-        ).strip() or None
+        self.provider: Optional[str] = None
+        self.api_key: Optional[str] = (os.getenv("GENAI_API_KEY") or "").strip() or None
         if self.api_key:
             self.provider = "purdue_genai"
             self._genai_url = os.getenv(
@@ -62,28 +60,20 @@ class LLMClient:
         temperature: float = 0.0,
     ) -> LLMResult:
         if not self.is_available():
-            return LLMResult(
-                False, None, None, "No LLM provider configured", 0
-            )
+            return LLMResult(False, None, None, "No LLM provider configured", 0)
 
         start = time.time()
         try:
             raw = ""
             if self.provider == "purdue_genai":
-                raw = self._call_purdue_genai(
-                    system, prompt, max_tokens, temperature
-                )
+                raw = self._call_purdue_genai(system, prompt, max_tokens, temperature)
             else:
-                raise RuntimeError(f"Unsupported provider: {self.provider}")
+                raise RuntimeError("Unsupported provider: {}".format(self.provider))
 
             parsed = _clamp_json_object(raw)
-            return LLMResult(
-                True, parsed, raw, None, int((time.time() - start) * 1000)
-            )
+            return LLMResult(True, parsed, raw, None, int((time.time() - start) * 1000))
         except Exception as e:
-            return LLMResult(
-                False, None, None, str(e), int((time.time() - start) * 1000)
-            )
+            return LLMResult(False, None, None, str(e), int((time.time() - start) * 1000))
 
     # ---- providers ----
 
@@ -111,10 +101,10 @@ class LLMClient:
             ],
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "stream": False,  # simpler parse
+            "stream": False,
         }
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": "Bearer {}".format(api_key),
             "Content-Type": "application/json",
         }
         resp = requests.post(url, headers=headers, json=body, timeout=60)

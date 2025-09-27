@@ -6,6 +6,7 @@ from typing import Any, Iterable, List, Tuple
 
 from repo_context import RepoContext
 from .base_metric import BaseMetric
+from typing import Optional
 
 LICENSE_FILE_RE = re.compile(
     r"""(?ix)
@@ -93,7 +94,7 @@ def _to_list(x: Any) -> List[str]:
         return []
 
 
-def _from_tags(tags: Iterable[str] | None) -> List[str]:
+def _from_tags(tags: Optional[Iterable[str]]) -> List[str]:
     if not tags:
         return []
     out = []

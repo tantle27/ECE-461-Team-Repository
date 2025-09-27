@@ -2,7 +2,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from collections.abc import Mapping
 
 import requests
@@ -13,6 +13,10 @@ try:
     from huggingface_hub import HfApi  # type: ignore
 except Exception:  # pragma: no cover
     HfApi = None  # type: ignore
+
+
+def _removeprefix(s: str, prefix: str) -> str:
+    return s[len(prefix):] if s.startswith(prefix) else s
 
 
 # ---------------- HTTP plumbing ----------------
@@ -57,12 +61,12 @@ def _retry(fn, attempts: int = 4):
         except Exception:
             if i == attempts - 1:
                 raise
-            time.sleep(0.4 * (2**i))
+            time.sleep(0.4 * (2 ** i))
 
 
 def _json_get(session: requests.Session, url: str) -> Optional[Dict[str, Any]]:
     r = _retry(lambda: session.get(url))
-    if r.status_code == 404 or r.status_code == 401:
+    if r.status_code in (404, 401):
         return None
     r.raise_for_status()
     try:
@@ -83,21 +87,21 @@ def _text_get(session: requests.Session, url: str) -> Optional[str]:
 @dataclass
 class HFModelInfo:
     hf_id: str
-    card_data: Dict[str, Any] | None
+    card_data: Optional[Dict[str, Any]]
     tags: List[str]
-    likes: int | None
-    downloads_30d: int | None
-    downloads_all_time: int | None
-    created_at: str | None
-    last_modified: str | None
-    gated: bool | None
-    private: bool | None
+    likes: Optional[int]
+    downloads_30d: Optional[int]
+    downloads_all_time: Optional[int]
+    created_at: Optional[str]
+    last_modified: Optional[str]
+    gated: Optional[bool]
+    private: Optional[bool]
 
 
 @dataclass
 class HFFileInfo:
     path: str
-    size: int | None
+    size: Optional[int]
 
 
 # ---------------- Helpers ----------------
@@ -106,9 +110,9 @@ def _normalize_card_data(x: Any) -> Dict[str, Any]:
     if x is None:
         return {}
     try:
-        if hasattr(x, "to_dict") and callable(x.to_dict):  # type: ignore[attr-defined]
+        if hasattr(x, "to_dict") and callable(x.to_dict):
             return dict(x.to_dict())
-        if hasattr(x, "data") and isinstance(x.data, Mapping):  # type: ignore[attr-defined]
+        if hasattr(x, "data") and isinstance(x.data, Mapping):
             return dict(x.data)
         if isinstance(x, Mapping):
             return dict(x)
@@ -154,17 +158,7 @@ class GitHubMatcher:
         for pre in ("hf-", "huggingface-", "the-"):
             if s.startswith(pre):
                 s = s[len(pre):]
-
-        for suf in (
-            "-dev",
-            "-devkit",
-            "-main",
-            "-release",
-            "-project",
-            "-repo",
-            "-code",
-        ):
-
+        for suf in ("-dev", "-devkit", "-main", "-release", "-project", "-repo", "-code"):
             if s.endswith(suf):
                 s = s[: -len(suf)]
         return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
@@ -178,10 +172,6 @@ class GitHubMatcher:
         return {t for t in re.split(r"[^a-z0-9]+", GitHubMatcher._norm(s)) if len(t) >= 3}
 
     @staticmethod
-    def _tokenize(s: str) -> Set[str]:
-        return GitHubMatcher._tokens(s)
-
-    @staticmethod
     def _jac(a: Set[str], b: Set[str]) -> float:
         if not a or not b:
             return 0.0
@@ -190,25 +180,26 @@ class GitHubMatcher:
 
     @staticmethod
     def _ver_bonus(hf_id: str, repo: str) -> float:
-        hv = [
-            tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(hf_id or "")]
-        rv = [
-            tuple(map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(repo or "")]
+        hv = [tuple(
+            map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(hf_id or "")]
+        rv = [tuple(
+            map(int, m.group(1).split("."))) for m in GitHubMatcher.VER.finditer(repo or "")]
         if not hv or not rv:
             return 0.0
         return max(1.0 if x == y else 0.9 for x in hv for y in rv)
 
     @classmethod
-    def extract_urls(cls, hf_id: str, readme: str, card: Dict | None = None) -> List[str]:
+    def extract_urls(
+            cls, hf_id: str, readme: str, card: Optional[Dict[str, Any]] = None) -> List[str]:
         if not readme:
             return []
-        aliases = {cls._normalize(hf_id)} | (
-            {cls._normalize(
-                card.get("name"))} if card and isinstance(card.get("name"), str) else set()
-        )
+        aliases: Set[str] = set([cls._normalize(hf_id)])
+        if card and isinstance(card.get("name"), str):
+            aliases = aliases.union({cls._normalize(card.get("name"))})  # type: ignore[arg-type]
+
         hf_org = hf_id.replace("datasets/", "").split("/", 1)[0].lower() if "/" in hf_id else ""
-        cands: List[tuple[float, str, str]] = []
-        seen: set[str] = set()
+        cands: List[Tuple[float, str, str]] = []
+        seen: Set[str] = set()
 
         for m in cls.GITHUB.finditer(readme):
             root = cls.ROOT.match(m.group(0))
@@ -222,7 +213,9 @@ class GitHubMatcher:
             if repo.lower() in cls.GENERIC:
                 continue
             toks = cls._tokens(repo)
-            sim = max((cls._jac(cls._tokens(a), toks) for a in aliases), default=0.0)
+            sim = 0.0
+            for a in aliases:
+                sim = max(sim, cls._jac(cls._tokens(a), toks))
             sim += cls._ver_bonus(hf_id, repo)
             if hf_org and (hf_org in owner.lower() or owner.lower() in hf_org):
                 sim += 0.05
@@ -253,15 +246,12 @@ class HFClient:
     # ---- Public API helpers ----
 
     def _api_model_json(self, hf_id: str) -> Optional[Dict[str, Any]]:
-        # includes metadata; may include 'siblings' (files)
         return _json_get(self._session, f"https://huggingface.co/api/models/{hf_id}")
 
     def _api_dataset_json(self, hf_id: str) -> Optional[Dict[str, Any]]:
         return _json_get(self._session, f"https://huggingface.co/api/datasets/{hf_id}")
 
     def _api_tree_json(self, base: str, revision: str = "main") -> Optional[List[Dict[str, Any]]]:
-        # Try 'tree' endpoint: /api/<kind>/<id>/tree/<rev>?recursive=1
-        # Works for many repos; if not present, returns None.
         url = f"https://huggingface.co/api/{base}/tree/{revision}?recursive=1"
         r = _retry(lambda: self._session.get(url))
         if r.status_code != 200:
@@ -275,9 +265,6 @@ class HFClient:
     # ---- File listing (robust) ----
 
     def _extract_files_from_api_obj(self, obj: Dict[str, Any]) -> List[HFFileInfo]:
-        """
-        Extract file list from the API object that often contains 'siblings' with rfilename/size.
-        """
         out: List[HFFileInfo] = []
         sibs = obj.get("siblings")
         if isinstance(sibs, list):
@@ -286,45 +273,35 @@ class HFClient:
                 if isinstance(p, str) and p:
                     out.append(HFFileInfo(path=p, size=_safe_int(s.get("size"))))
         return out
-    
-    def list_files(
-        self, hf_id: str, *, repo_type: str = "model"
-    ) -> List[HFFileInfo]:
+
+    def list_files(self, hf_id: str, *, repo_type: str = "model") -> List[HFFileInfo]:
+        files: List[str]
         try:
-            files = self.api.list_repo_files(hf_id, repo_type=repo_type)
+            files = self.api.list_repo_files(
+                hf_id, repo_type=repo_type) if self.api else []
         except Exception:
             files = []
         out: List[HFFileInfo] = []
         if files:
-            # try to enrich sizes if get_paths_info exists
-            sizes: Dict[str, int] = {}
+            sizes: Dict[str, Optional[int]] = {}
             try:
-                infos = self.api.get_paths_info(
-                    hf_id, paths=files, repo_type=repo_type
-                )
+                infos = self.api.get_paths_info(hf_id, paths=files, repo_type=repo_type)
                 for info in infos or []:
                     p = getattr(info, "path", None)
                     sz = getattr(info, "size", None)
                     if isinstance(p, str):
                         sizes[p] = sz if isinstance(sz, int) else None
-            except AttributeError:
-                # tests expect to handle AttributeError and return size=None
-                sizes = {}
             except Exception:
                 sizes = {}
             for f in files:
                 out.append(HFFileInfo(path=f, size=sizes.get(f)))
         return out
-    
+
     def _parse_tree_html(self, base_path: str, revision: str = "main") -> List[HFFileInfo]:
-        """
-        Fallback: parse HTML from /<base>/tree/<revision> to list files (sizes unknown).
-        """
         url = f"https://huggingface.co/{base_path}/tree/{revision}"
         html = _text_get(self._session, url)
         if not html:
             return []
-        # Look for "/<base>/blob/<revision>/<path>"
         base_quoted = re.escape(base_path)
         rev_quoted = re.escape(revision)
         pat = re.compile(rf"/{base_quoted}/blob/{rev_quoted}/([^\"'#?]+)")
@@ -332,12 +309,10 @@ class HFClient:
         return [HFFileInfo(path=f, size=None) for f in sorted(files)]
 
     def list_model_files(self, hf_id: str, *, revision: str = "main") -> List[HFFileInfo]:
-        # 1) Try API model JSON 'siblings'
         obj = self._api_model_json(hf_id)
         files = self._extract_files_from_api_obj(obj or {})
         if files:
             return files
-        # 2) Try tree API (models/<id>)
         tree = self._api_tree_json(f"models/{hf_id}", revision=revision)
         if tree:
             out: List[HFFileInfo] = []
@@ -346,11 +321,10 @@ class HFClient:
                     out.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
             if out:
                 return out
-        # 3) Optional HfApi fallback
         if self.api:
             try:
                 names = self.api.list_repo_files(hf_id, repo_type="model")
-                sizes: Dict[str, int | None] = {}
+                sizes: Dict[str, Optional[int]] = {}
                 try:
                     infos = self.api.get_paths_info(hf_id, paths=names, repo_type="model")
                     for info in infos or []:
@@ -363,7 +337,6 @@ class HFClient:
                 return [HFFileInfo(path=f, size=sizes.get(f)) for f in names]
             except Exception:
                 pass
-        # 4) HTML fallback
         return self._parse_tree_html(hf_id, revision=revision)
 
     def list_dataset_files(self, hf_id: str, *, revision: str = "main") -> List[HFFileInfo]:
@@ -373,16 +346,16 @@ class HFClient:
             return files
         tree = self._api_tree_json(f"datasets/{hf_id}", revision=revision)
         if tree:
-            out: List[HFFileInfo] = []
+            out2: List[HFFileInfo] = []
             for node in tree:
                 if node.get("type") == "file" and isinstance(node.get("path"), str):
-                    out.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
-            if out:
-                return out
+                    out2.append(HFFileInfo(path=node["path"], size=_safe_int(node.get("size"))))
+            if out2:
+                return out2
         if self.api:
             try:
                 names = self.api.list_repo_files(hf_id, repo_type="dataset")
-                sizes: Dict[str, int | None] = {}
+                sizes: Dict[str, Optional[int]] = {}
                 try:
                     infos = self.api.get_paths_info(hf_id, paths=names, repo_type="dataset")
                     for info in infos or []:
@@ -406,16 +379,14 @@ class HFClient:
         revision: str = "main",
         repo_type: Optional[str] = None,
     ) -> Optional[str]:
-        """
-        Try both model and dataset paths, preferring repo_type if given.
-        """
-        plain = hf_id.removeprefix("datasets/")
-        ds_id = f"datasets/{plain}"
-        order = (
-            [plain, ds_id] if repo_type == "model"
-            else [ds_id, plain] if repo_type == "dataset"
-            else [plain, ds_id]
-        )
+        plain = _removeprefix(hf_id, "datasets/")
+        ds_id = "datasets/" + plain
+        if repo_type == "model":
+            order: List[str] = [plain, ds_id]
+        elif repo_type == "dataset":
+            order = [ds_id, plain]
+        else:
+            order = [plain, ds_id]
         for base in order:
             for fn in ("README.md", "README.MD", "readme.md"):
                 url = f"https://huggingface.co/{base}/raw/{revision}/{fn}"
@@ -434,7 +405,7 @@ class HFClient:
 
     def get_model_index_json(
             self, hf_id: str, *, revision: str = "main") -> Optional[Dict[str, Any]]:
-        plain = hf_id.removeprefix("datasets/")
+        plain = _removeprefix(hf_id, "datasets/")
         urls = [
             f"https://huggingface.co/{plain}/raw/{revision}/model_index.json",
             f"https://huggingface.co/datasets/{plain}/raw/{revision}/model_index.json",
@@ -448,7 +419,6 @@ class HFClient:
     # ---- Card/info (public API first) ----
 
     def _to_info_from_api_obj(self, hf_id: str, obj: Dict[str, Any]) -> HFModelInfo:
-        # keys observed on the public API; tolerate missing/variant shapes
         card = _normalize_card_data(obj.get("cardData"))
         tags_raw = obj.get("tags") or []
         tags = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else []
@@ -477,10 +447,9 @@ class HFClient:
         obj = self._api_model_json(hf_id)
         if obj:
             return self._to_info_from_api_obj(hf_id, obj)
-        # Optional HfApi fallback
         if self.api:
             try:
-                hub_obj = self.api.model_info(hf_id)  # type: ignore[attr-defined]
+                hub_obj = self.api.model_info(hf_id)
                 return self._to_info_from_api_obj(
                     hf_id,
                     {
@@ -498,7 +467,6 @@ class HFClient:
                 )
             except Exception:
                 pass
-        # Minimal object if everything fails
         return HFModelInfo(
             hf_id=hf_id,
             card_data={},
@@ -518,7 +486,7 @@ class HFClient:
             return self._to_info_from_api_obj(hf_id, obj)
         if self.api:
             try:
-                hub_obj = self.api.dataset_info(hf_id)  # type: ignore[attr-defined]
+                hub_obj = self.api.dataset_info(hf_id)
                 return self._to_info_from_api_obj(
                     hf_id,
                     {
@@ -563,7 +531,6 @@ class HFClient:
         if not readme:
             return []
         if card_data is None:
-            # Best-effort to grab card data (no token)
             data = self._api_model_json(hf_id) or self._api_dataset_json(hf_id)
             if data and isinstance(data.get("cardData"), dict):
                 card_data = data["cardData"]
@@ -571,5 +538,10 @@ class HFClient:
 
 
 # Back-compat shim
-def github_urls_from_readme(hf_id: str, readme: str, *, card_data: Dict | None = None) -> List[str]:
+def github_urls_from_readme(
+    hf_id: str,
+    readme: str,
+    *,
+    card_data: Optional[Dict[str, Any]] = None
+) -> List[str]:
     return GitHubMatcher.extract_urls(hf_id, readme, card_data)

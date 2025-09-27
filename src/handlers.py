@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Dict, Any, List
 
 from api.gh_client import GHClient
 from api.hf_client import HFClient
@@ -311,8 +311,8 @@ def _uniq_keep_order(xs: Iterable[str]) -> list[str]:
 
 
 def datasets_from_card(
-    card_data: dict | None, tags: list[str] | None
-) -> list[str]:
+    card_data: Optional[Dict[str, Any]], tags: Optional[List[str]]
+) -> List[str]:
     out: list[str] = []
     if isinstance(card_data, dict):
         ds = card_data.get("datasets")
@@ -329,7 +329,7 @@ def datasets_from_card(
     return _uniq_keep_order(out)
 
 
-def datasets_from_readme(readme_text: str | None) -> list[str]:
+def datasets_from_readme(readme_text: Optional[str]) -> List[str]:
     if not readme_text:
         return []
     out: list[str] = []
