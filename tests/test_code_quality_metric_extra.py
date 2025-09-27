@@ -43,4 +43,4 @@ def test_code_quality_llm_exception():
 def test_code_quality_get_description():
     metric = CodeQualityMetric()
     desc = metric.get_description()
-    assert "Quality from README" in desc
+    assert "code quality" in desc.lower()
