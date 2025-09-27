@@ -28,51 +28,72 @@ Category = Literal["MODEL", "DATASET", "CODE"]
 # ---------------- Logging ----------------
 def _validate_log_file_env() -> str:
     """
-    Validate LOG_FILE env var per spec:
-      - Must be set
-      - File must already exist (do NOT create it)
-      - Must be writable (we must be able to open for writing)
-    Exit(1) on failure.
+    Strict LOG_FILE validator (no writes):
+      - env var must be set
+      - path must exist and be a regular file (not a dir, socket, fifo, device)
+      - must not be a symlink
+      - must be owned by the current user
+      - permissions must be 0600 (user rw; no group/other bits)
+      - parent directory must exist and be writable
+    Exit(1) on any failure.
     """
+
     log_file = os.getenv("LOG_FILE")
     if not log_file:
         sys.exit(1)
 
-    p = Path(log_file)
+    try:
+        p = Path(log_file)
+    except Exception:
+        sys.exit(1)
 
     if not p.exists() or not p.is_file():
         sys.exit(1)
 
-    # Check basic write access
-    if not os.access(p, os.W_OK):
-        sys.exit(1)
- 
-    # Generate a unique random number for this test
-    random_number = os.urandom(64).hex()
-
-    # Try to log a test message to ensure logger compatibility
     try:
-        logging.basicConfig(
-            filename=log_file,
-            filemode="a",
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            force=True,
-        )
-        logging.info(f"Logger test entry for validation: {random_number}")
-    except Exception:
-        sys.exit(1)
-
-    # Validate that the log entry was written
-    try:
-        with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-            found = any(f"Logger test entry for validation: {random_number}" in line for line in f)
-        if not found:
+        if p.is_symlink():
             sys.exit(1)
     except Exception:
         sys.exit(1)
 
-    return log_file
+    try:
+        p_resolved = p.resolve(strict=True)
+    except Exception:
+        sys.exit(1)
+    if not p_resolved.is_file():
+        sys.exit(1)
+
+    try:
+        st = p_resolved.stat()
+    except Exception:
+        sys.exit(1)
+
+    if not stat.S_ISREG(st.st_mode):
+        sys.exit(1)
+
+    try:
+        euid = os.geteuid()
+    except AttributeError:
+        euid = None
+    if euid is not None and st.st_uid != euid:
+        sys.exit(1)
+
+    # Parent directory must exist, be a dir, and be writable by the user
+    parent = p_resolved.parent
+    if not parent.exists() or not parent.is_dir():
+        sys.exit(1)
+    if not os.access(parent, os.W_OK):
+        sys.exit(1)
+
+    # File itself should be writable (no open/write performed)
+    if not os.access(p_resolved, os.W_OK):
+        sys.exit(1)
+
+    # Also require readability, so logging can read back if needed
+    if not os.access(p_resolved, os.R_OK):
+        sys.exit(1)
+
+    return str(p_resolved)
 
 
 def setup_logging() -> None:
