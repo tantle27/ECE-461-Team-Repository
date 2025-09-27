@@ -213,7 +213,6 @@ class TestIntegrationMetricsSystem:
 class TestSystemPerformance:
     """Performance and scalability tests."""
 
-    @pytest.mark.slow
     def test_large_number_of_metrics(self):
         """Test system with many metrics."""
         # Create many simple metrics

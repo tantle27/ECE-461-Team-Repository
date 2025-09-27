@@ -13,8 +13,8 @@ if [ "$1" = "install" ]; then
   pip install -r requirements.txt
   exit 0
 elif [ "$1" = "test" ]; then
-  python -m pytest tests/ -vvs --tb=l > /dev/null 2>&1
-  exit 0
+  python run.py
+  exit $?
 else
   python3 src/app.py "$1"
   exit 0
