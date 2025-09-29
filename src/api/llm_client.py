@@ -46,7 +46,7 @@ class LLMClient:
                 "GENAI_API_URL",
                 "https://genai.rcac.purdue.edu/api/chat/completions",
             )
-            self._genai_model = os.getenv("GENAI_MODEL", "gpt-3.5-turbo, llama3.1:latest")
+            self._genai_model = os.getenv("GENAI_MODEL", "llama3.1:latest")
 
     def is_available(self) -> bool:
         return bool(self.provider) and bool(self.api_key)
