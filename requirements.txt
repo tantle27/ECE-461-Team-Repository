@@ -1,6 +1,7 @@
 anyio==4.10.0
 certifi==2025.8.3
 charset-normalizer==3.4.3
+dulwich>=0.21.6
 filelock==3.19.1
 flake8==7.3.0
 fsspec==2025.9.0

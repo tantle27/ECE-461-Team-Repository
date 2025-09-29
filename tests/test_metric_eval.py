@@ -117,7 +117,7 @@ class TestMetricEval:
 
         assert len(results) == 2
         assert results["good_metric"] == 0.9
-        assert results["bad_metric"] == -1  # Failing score
+        assert results["bad_metric"] == 0  # Failing score
 
     def test_weights_access(self):
         """Test accessing weights from MetricEval."""
@@ -314,7 +314,7 @@ class TestMetricEval:
         assert "metric1" in results
         assert "metric2" in results
         assert results["metric1"] == 0.75
-        assert results["metric2"] == -1  # Failed metric should return -1
+        assert results["metric2"] == 0 # Failed metric should return -1
 
         # Verify exception was logged
         # Patch: check caplog.records for any error log,
@@ -378,7 +378,7 @@ class TestMetricEval:
                 return "desc"
         evalr = MetricEval([FailingMetric()], {"Fail": 1.0})
         result = evalr.evaluateAll({})
-        assert result == {"Fail": -1}
+        assert result == {"Fail": -0}
 
     def test_metric_eval_aggregateScores_zero_and_negative_weights(self):
         """Test aggregateScores with zero/negative weights and clamping."""

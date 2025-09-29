@@ -285,48 +285,22 @@ def _evaluate_and_persist(
             return 0.0
         return 1.0 if v > 1.0 else v
 
-
-    scores: Dict[str, float] = {}
-    lats_ms: Dict[str, int] = {}
-
+    # -------- Threaded evaluation via MetricEval --------
     eval_t0 = time.perf_counter_ns()
+    raw_scores, durations = evaluator.evaluate_all_timed(repo_ctx)
 
-    # -------- Parallel evaluation --------
-    raw_results = {}
-    durations: Dict[str, int] = {}
+    scores: Dict[str, float] = {name: _to_01(val) for name, val in raw_scores.items()}
+    lats_ms: Dict[str, int] = {name: int(ms) for name, ms in durations.items()}
 
-    def timed_eval(metric):
-        t0 = time.perf_counter_ns()
-        try:
-            val = metric.evaluate(repo_ctx)
-        except Exception as e:
-            repo_ctx.setdefault("_metric_errors", {})[metric.name] = str(e)
-            val = 0.0
-        dur_ms = max(1, int((time.perf_counter_ns() - t0) // 1_000_000))
-        return metric.name, val, dur_ms
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(timed_eval, m): m for m in metrics}
-        for fut in as_completed(futures):
-            name, raw, dur = fut.result()
-            raw_results[name] = raw
-            durations[name] = dur
-            scores[name] = _to_01(raw)
-            lats_ms[name] = dur
-            logging.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, name, scores[name], dur)
+    for name in sorted(scores.keys()):
+        logging.info("[METRIC] id=%s %s=%.3f (%d ms)", rid, name, scores[name], lats_ms.get(name, 1))
 
     net = _to_01(evaluator.aggregateScores(scores))
+    net_lat = max(1, int((time.perf_counter_ns() - eval_t0) // 1_000_000))
 
-    total_eval_ms = max(
-        1, int((time.perf_counter_ns() - eval_t0) // 1_000_000)
-    )
-    net_lat = total_eval_ms
+    logging.info("[SCORE] id=%s category=%s net=%.3f (%d ms)", rid, category, net, net_lat)
 
-    logging.info(
-        "[SCORE] id=%s category=%s net=%.3f (%d ms)", rid, category, net, net_lat
-    )
-
+    # -------- persist to DB --------
     conn = db.open_db(db_path)
     try:
         ver = "v1"
@@ -688,7 +662,5 @@ def _emit_error_ndjson(name_hint: str = "unknown", category: str = "MODEL") -> N
 
 
 if __name__ == "__main__":
-    # _require_valid_github_token()
-    # _validate_log_file_env()
     setup_logging()
     sys.exit(main())

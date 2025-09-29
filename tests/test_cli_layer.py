@@ -697,7 +697,6 @@ class TestAppEvaluationAndPersistenceFixed:
         # Patch NetScorer in sys.modules if missing
         import sys
         if not hasattr(sys.modules['app'], 'NetScorer'):
-            import types
             sys.modules['app'].NetScorer = type('NetScorer', (), {})
         from unittest.mock import patch as _patch
         with _patch('app.NetScorer') as mock_net_scorer:
@@ -709,32 +708,33 @@ class TestAppEvaluationAndPersistenceFixed:
             mock_init_weights.return_value = {"BusFactor": 0.3, "License": 0.4}
 
             mock_evaluator = MagicMock()
-            mock_evaluator.evaluateAll.return_value = {"BusFactor": 0.8, "License": 0.9}
+            # NEW: app uses evaluate_all_timed -> return (scores, latencies)
+            mock_evaluator.evaluate_all_timed.return_value = (
+                {"BusFactor": 0.8, "License": 0.9},
+                {"BusFactor": 12, "License": 34},
+            )
             mock_evaluator.aggregateScores.return_value = 0.85
             mock_metric_eval_class.return_value = mock_evaluator
 
             mock_conn = MagicMock()
             mock_open_db.return_value = mock_conn
 
-            # Mock NetScorer
             mock_ns = MagicMock()
             mock_ns.to_ndjson_string.return_value = '{"URL": "test", "NetScore": 0.85}'
             mock_ns.__str__.return_value = "NetScorer(net_score=0.85, metrics=2)"
             mock_net_scorer.return_value = mock_ns
 
-            # Setup context
             mock_ctx = MagicMock(spec=RepoContext)
             mock_ctx.hf_id = "test-model"
             mock_ctx.gh_url = None
             mock_ctx.url = "https://huggingface.co/test-model"
 
-            # Execute
             _evaluate_and_persist(Path("test.db"), 123, "MODEL", mock_ctx)
 
-            # Verify
             mock_evaluator.aggregateScores.assert_called_once()
             mock_conn.commit.assert_called_once()
             mock_conn.close.assert_called_once()
+
 
     @patch('app.init_metrics')
     @patch('app.init_weights')
@@ -747,43 +747,40 @@ class TestAppEvaluationAndPersistenceFixed:
         # Patch NetScorer in sys.modules if missing
         import sys
         if not hasattr(sys.modules['app'], 'NetScorer'):
-            import types
             sys.modules['app'].NetScorer = type('NetScorer', (), {})
         from unittest.mock import patch as _patch
         with _patch('app.NetScorer') as mock_net_scorer:
-            # Setup mocks
             mock_metrics = [MagicMock()]
             mock_metrics[0].name = "BusFactor"
             mock_init_metrics.return_value = mock_metrics
             mock_init_weights.return_value = {"BusFactor": 1.0}
 
             mock_evaluator = MagicMock()
-            mock_evaluator.evaluateAll.return_value = {"BusFactor": -1.0}  # Error value
+            # NEW: return raw -1.0 which will be clamped to 0.0 by app code
+            mock_evaluator.evaluate_all_timed.return_value = (
+                {"BusFactor": -1.0},
+                {"BusFactor": 7},
+            )
             mock_evaluator.aggregateScores.return_value = 0.0
             mock_metric_eval_class.return_value = mock_evaluator
 
             mock_conn = MagicMock()
             mock_open_db.return_value = mock_conn
 
-            # Mock NetScorer
             mock_ns = MagicMock()
             mock_ns.to_ndjson_string.return_value = '{"URL": "test", "NetScore": 0.0}'
             mock_ns.__str__.return_value = "NetScorer(net_score=0.0, metrics=1)"
             mock_net_scorer.return_value = mock_ns
 
-            # Setup context with metric errors
             mock_ctx = MagicMock(spec=RepoContext)
             mock_ctx.hf_id = "test-model"
             mock_ctx.gh_url = None
             mock_ctx.url = "https://huggingface.co/test-model"
 
-            # Execute
             _evaluate_and_persist(Path("test.db"), 456, "MODEL", mock_ctx)
 
-            # Verify error handling
             assert mock_evaluator.aggregateScores.called
             assert mock_conn.commit.called
-
 
 class TestPersistContext:
     """Test suite for persist_context function."""

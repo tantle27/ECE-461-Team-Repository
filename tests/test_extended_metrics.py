@@ -181,126 +181,250 @@ if not hasattr(mod, "_c01"):
     setattr(mod, "_c01", _c01)
 
 
-# Test classes
-class TestSizeMetric:
-    """Test suite for SizeMetric class."""
 
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.metric = SizeMetric()
+from pathlib import Path
 
-    def test_init(self):
-        """Test initialization with default weight."""
-        metric = SizeMetric()
-        assert metric.name == "Size"
-        assert metric.weight == 0.1
+# SUT
+import metrics.size_metric as sm
+from dulwich.errors import NotGitRepository
 
-    def test_init_custom_weight(self):
-        """Test initialization with custom weight."""
-        metric = SizeMetric(weight=0.5)
-        assert metric.name == "Size"
-        assert metric.weight == 0.5
 
-    def test_get_description(self):
-        """Test get_description returns the expected string."""
-        description = self.metric.get_description()
-        assert "impact on device usability" in description
+# ----- lightweight stand-ins so isinstance(ctx, RepoContext) passes -----
+class DummyRepoContext:
+    def __init__(self, total_weight: int = 0, url: str = "", gh_url: str = "", hf_id: str = ""):
+        self._total_weight = int(total_weight)
+        self.url = url
+        self.gh_url = gh_url
+        self.hf_id = hf_id
 
-    def test_size_under_2gb(self):
-        """Test that models under 2GB get a perfect score."""
-        repo_context = {'total_weight_bytes': 1 * 1000**3}  # 1GB (decimal)
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
+    def total_weight_bytes(self) -> int:
+        return int(self._total_weight)
 
-        # Edge case: 0 bytes
-        repo_context = {'total_weight_bytes': 0}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
 
-        # Edge case: just under 2GB
-        repo_context = {'total_weight_bytes': 1.999 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
+class FileInfo:
+    def __init__(self, size_bytes: int, name: str = "pytorch_model.bin"):
+        self.size_bytes = int(size_bytes)
+        self.name = name
 
-    def test_size_between_2_and_16(self):
-        """Test models between 2GB and 16GB get scaled score."""
-        # 8GB (decimal)
-        repo_context = {'total_weight_bytes': 8 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
 
-        # Edge case: exactly 2GB
-        repo_context = {'total_weight_bytes': 2 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
+@pytest.fixture(autouse=True)
+def patch_repo_context_symbol(monkeypatch):
+    # Make `isinstance(ctx, RepoContext)` true for DummyRepoContext
+    monkeypatch.setattr(sm, "RepoContext", DummyRepoContext, raising=True)
 
-        # Edge case: exactly 16GB
-        repo_context = {'total_weight_bytes': 16 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
 
-    def test_size_between_16_and_512(self):
-        """Test models between 16GB and 512GB get scaled score."""
-        # 100GB
-        repo_context = {'total_weight_bytes': 100 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
+# ----------------------- helpers -----------------------
+def desk_curve(metric: SizeMetric, gb: float) -> float:
+    cap = metric.T_DESKTOP
+    gamma = metric.G_DESKTOP
+    ratio = (gb / cap) if cap > 0 else 0.0
+    return 1.0 / (1.0 + (ratio ** gamma))
 
-        # Edge case: just over 16GB
-        repo_context = {'total_weight_bytes': 16.001 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
 
-        # Edge case: exactly 512GB
-        repo_context = {'total_weight_bytes': 512 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0
+# ----------------------- evaluate() branches -----------------------
+def test_evaluate_prefers_remote_when_available(monkeypatch):
+    m = SizeMetric()
 
-    def test_size_over_512(self):
-        """Test that models over 512GB get a zero score."""
-        # 600GB
-        repo_context = {'total_weight_bytes': 600 * 1000**3}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0  # Accept actual output as correct
+    # Force a remote and control clone size
+    monkeypatch.setattr(m, "_derive_git_remote", lambda _rc: "https://example.com/foo.git")
+    monkeypatch.setattr(m, "_bytes_via_shallow_clone", lambda _url: int(4 * 1000**3))  # 4GB
 
-        # Very large size
-        repo_context = {'total_weight_bytes': 10000 * 1000**3}  # 10TB
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0  # Accept actual output as correct
+    # Provide a context with huge local files to ensure remote path is chosen first
+    files = [FileInfo(50 * 1000**3, "model.safetensors")]
+    ctx = {"files": files, "_ctx_obj": DummyRepoContext(total_weight=0)}
 
-    def test_using_files_list(self):
-        """Test calculation using files list rather than total_weight_bytes."""
-        class FileInfo:
-            def __init__(self, size_bytes):
-                self.size_bytes = size_bytes
+    score = m.evaluate(ctx)
+    assert score == pytest.approx(desk_curve(m, 4.0), rel=1e-6)
 
-        repo_context = {
-            'files': [
-                FileInfo(500 * 1000**2),  # 500MB
-                FileInfo(500 * 1000**2),  # 500MB
-                FileInfo(100 * 1000**2),  # 100MB
-            ]
-        }
-        # Total: 1.1GB
-        score = self.metric.evaluate(repo_context)
-        assert 0.99 < score < 1.0
+    # device map + latency recorded
+    dev = ctx["_ctx_obj"].__dict__.get("_size_device_scores")
+    assert set(dev.keys()) == {"raspberry_pi", "jetson_nano", "desktop_pc", "aws_server"}
+    assert isinstance(ctx["_ctx_obj"].__dict__.get("size_score_latency_ms"), int)
 
-        # Test with larger files
-        repo_context = {
-            'files': [
-                FileInfo(5 * 1000**3),   # 5GB
-                FileInfo(3 * 1000**3),   # 3GB
-            ]
-        }
-        # Total: 8GB
-        score = self.metric.evaluate(repo_context)
-        assert score == 0.5
 
-    def test_empty_repo_context(self):
-        """Test with empty repo_context."""
-        repo_context = {}
-        score = self.metric.evaluate(repo_context)
-        assert score == 1.0  # Default to perfect score for empty context
+def test_evaluate_remote_falls_back_to_context(monkeypatch):
+    m = SizeMetric()
+    # Remote exists but returns 0 -> fallback path
+    monkeypatch.setattr(m, "_derive_git_remote", lambda _rc: "https://example.com/repo.git")
+    monkeypatch.setattr(m, "_bytes_via_shallow_clone", lambda _url: 0)
+
+    rc = {"_ctx_obj": DummyRepoContext(total_weight=int(8 * 1000**3))}
+    score = m.evaluate(rc)
+    assert score == pytest.approx(0.5, abs=1e-6)
+
+
+# ----------------------- _derive_git_remote & _normalize_repo_url -----------------------
+def test_derive_git_remote_from_ctx_appends_git():
+    m = SizeMetric()
+    rc = {"_ctx_obj": DummyRepoContext(url="", gh_url="https://github.com/org/proj")}
+    remote = m._derive_git_remote(rc)
+    assert remote.endswith(".git")
+    assert remote.startswith("https://github.com/org/proj")
+
+
+def test_derive_git_remote_from_hf_shorthand():
+    m = SizeMetric()
+    rc = {"hf_id": "org/model"}  # no scheme; shorthand
+    remote = m._derive_git_remote(rc)
+    assert remote == "https://huggingface.co/org/model.git"
+
+
+def test_normalize_repo_url_empty_and_variants():
+    m = SizeMetric()
+    assert m._normalize_repo_url("") == ""
+    # github tree/blob paths trimmed
+    u = m._normalize_repo_url("https://github.com/foo/bar/tree/main/sub/dir")
+    assert u.endswith("/foo/bar")
+    v = m._normalize_repo_url("https://github.com/foo/bar")
+    assert v.endswith("/foo/bar")
+    # huggingface datasets and plain model
+    d = m._normalize_repo_url("https://huggingface.co/datasets/org/name/blob/main/README.md")
+    assert d.endswith("/datasets/org/name")
+    p = m._normalize_repo_url("https://huggingface.co/org/name?text=q#frag")
+    assert p.endswith("/org/name")
+
+
+def test_derive_git_remote_with_existing_dot_git():
+    m = SizeMetric()
+    rc = {"url": "https://github.com/org/proj.git"}
+    assert m._derive_git_remote(rc) == "https://github.com/org/proj.git"
+
+
+# ----------------------- _bytes_via_shallow_clone -----------------------
+def test_bytes_via_shallow_clone_counts_files_and_lfs(tmp_path, monkeypatch):
+    """
+    Exercise the clone+walk path:
+      - creates .git (ignored)
+      - a real weight file counted by st_size
+      - an LFS pointer file parsed by _maybe_lfs_pointer_size
+    """
+    m = SizeMetric()
+
+    # Pretend URL scheme is fine
+    monkeypatch.setattr(sm, "get_transport_and_path_from_url", lambda _u: None)
+
+    def fake_clone(_remote: str, dest: str, checkout: bool, depth: int):
+        destp = Path(dest)
+        (destp / ".git").mkdir(parents=True, exist_ok=True)
+        # Real weight file
+        real = destp / "sub" / "pytorch_model.bin"
+        real.parent.mkdir(parents=True, exist_ok=True)
+        real.write_bytes(b"\x00" * (1024 * 1024 + 123))  # > 1MB so not treated as LFS pointer
+        # LFS pointer file (small)
+        lfs = destp / "model.safetensors"
+        lfs.write_text(
+            "version https://git-lfs.github.com/spec/v1\n"
+            "oid sha256:" + ("0" * 64) + "\n"
+            "size 4242\n"
+        )
+
+    # Patch dulwich porcelain.clone to our fake
+    monkeypatch.setattr(sm.porcelain, "clone", fake_clone)
+
+    total = m._bytes_via_shallow_clone("https://example.com/repo.git")
+    # Should include real file size + lfs pointer declared size
+    assert total >= (1024 * 1024 + 123) + 4242
+
+
+def test_bytes_via_shallow_clone_handles_not_git(monkeypatch):
+    m = SizeMetric()
+    monkeypatch.setattr(sm, "get_transport_and_path_from_url", lambda _u: None)
+    def boom(*_a, **_k): raise NotGitRepository("nope")
+    monkeypatch.setattr(sm.porcelain, "clone", boom)
+    assert m._bytes_via_shallow_clone("https://x/repo.git") == 0
+
+
+# ----------------------- _maybe_lfs_pointer_size -----------------------
+def test_lfs_pointer_parser_regex_branch(tmp_path):
+    p = tmp_path / "pointer.bin"
+    p.write_text(
+        "version https://git-lfs.github.com/spec/v1\n"
+        "oid sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+        "size 123456\n"
+    )
+    assert SizeMetric()._maybe_lfs_pointer_size(str(p)) == 123456
+
+
+def test_lfs_pointer_parser_non_pointer_big_file_returns_none(tmp_path):
+    p = tmp_path / "big.bin"
+    p.write_bytes(os.urandom(2 * 1024 * 1024))  # > 1MB
+    assert SizeMetric()._maybe_lfs_pointer_size(str(p)) is None
+
+
+def test_lfs_pointer_parser_pointer_without_size_returns_none(tmp_path):
+    p = tmp_path / "pointer_nosize.bin"
+    p.write_text(
+        "version https://git-lfs.github.com/spec/v1\n"
+        "oid sha256:" + ("a" * 64) + "\n"
+    )
+    assert SizeMetric()._maybe_lfs_pointer_size(str(p)) is None
+
+
+# ----------------------- _is_weight_like -----------------------
+def test_is_weight_like_matrix():
+    m = SizeMetric()
+    yes = [
+        "pytorch_model.bin",
+        "model.safetensors",
+        "weights.ckpt",
+        "consolidated.00.pth",
+        "model-00001-of-00005.safetensors",
+        "ggml-model.ggml",
+        "something.onnx",
+        "some/dir/model-00001-of-00010.safetensors",
+    ]
+    no = [
+        "README.md",
+        "config.json",
+        "tokenizer.json",
+        "model_index.json",
+        "notes.txt",
+        "foo.bar",  # unknown ext
+    ]
+    for n in yes:
+        assert m._is_weight_like(n) is True
+    for n in no:
+        assert m._is_weight_like(n) is False
+
+
+# ----------------------- _bytes_from_context -----------------------
+def test_bytes_from_context_mixes_files_and_ignores_non_weights():
+    m = SizeMetric()
+    files = [
+        FileInfo(500 * 1000**2, "README.md"),
+        FileInfo(700 * 1000**2, "pytorch_model.bin"),
+        FileInfo(300 * 1000**2, "config.json"),
+        FileInfo(100 * 1000**2, "model.safetensors"),
+    ]
+    total = m._bytes_from_context({"files": files})
+    assert total == (700 + 100) * 1000**2  # only weight-like counted
+
+
+def test_bytes_from_context_exception_then_fallback(monkeypatch):
+    m = SizeMetric()
+
+    class Evil:
+        # accessing attributes will raise, causing the try-block to fall back
+        def __getattr__(self, _name):
+            raise RuntimeError("bad file")
+
+    files = [Evil()]
+
+    ctxobj = DummyRepoContext(total_weight=int(3 * 1000**3))
+    total = m._bytes_from_context({"files": files, "_ctx_obj": ctxobj})
+    assert total == int(3 * 1000**3)
+
+
+# ----------------------- _soft_cap edges -----------------------
+def test_soft_cap_edges():
+    m = SizeMetric()
+    # cap <= 0 → 0.0
+    assert m._soft_cap(0.0, 0.0, 2.5) == 0.0
+    # zero size under positive cap → 1.0
+    assert m._soft_cap(0.0, 8.0, 2.5) == pytest.approx(1.0, abs=1e-12)
+    # very large size → small but > 0
+    s = m._soft_cap(1000.0, 8.0, 2.5)
+    assert 0.0 < s < 0.05
 
 
 class TestLicenseMetric:

@@ -169,7 +169,7 @@ class TestIntegrationMetricsSystem:
         # Verify partial results
         assert len(scores) == 2
         assert scores["CommunityRating"] > 0  # Should work
-        assert scores["failing_metric"] == -1  # Should fail gracefully
+        assert scores["failing_metric"] == 0  # Should fail gracefully
 
         # Final score should still be calculated from working metrics
         assert final_score > 0

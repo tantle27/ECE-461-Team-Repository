@@ -156,7 +156,6 @@ class RepoContext:
                 old_src = getattr(cur, "_link_source", None) or ""
                 if self._source_rank(new_src) > self._source_rank(old_src):  # Fixed here
                     self.linked_code[i] = code_ctx  # upgrade
-                    print(f"Upgraded linked code for {key} from {old_src} to {new_src}")
                 else:
                     # merge minimal useful fields if old was a stub
                     if not getattr(
